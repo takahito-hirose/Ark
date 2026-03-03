@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,10 +35,11 @@ class BaseAgent(ABC):
         エージェントのロール名。ログ出力に使用する（例: ``"architect"``）。
     """
 
-    def __init__(self, provider: "BaseProvider", role: str = "agent") -> None:
+    def __init__(self, provider: "BaseProvider", role: str = "agent", workspace_path: Path | None = None) -> None:
         self._provider = provider
         self._role     = role
-        log.debug("[%s] initialized with provider: %r", self._role, provider)
+        self._workspace_path = workspace_path
+        log.debug("[%s] initialized with provider: %r, workspace: %s", self._role, provider, workspace_path)
 
     # ------------------------------------------------------------------
     # 共通LLM呼び出しラッパー

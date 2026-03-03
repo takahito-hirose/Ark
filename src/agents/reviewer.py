@@ -76,8 +76,8 @@ class ReviewerAgent(BaseAgent):
         使用する :class:`~src.core.providers.BaseProvider` 実装。
     """
 
-    def __init__(self, provider: "BaseProvider") -> None:
-        super().__init__(provider, role="reviewer")
+    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
+        super().__init__(provider, role="reviewer", workspace_path=workspace_path)
 
     # ------------------------------------------------------------------
     # Public API

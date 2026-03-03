@@ -19,6 +19,7 @@ import textwrap
 from typing import TYPE_CHECKING
 
 from src.agents.base_agent import BaseAgent
+from src.core.agents import build_coder_prompt, build_remediation_prompt
 from src.core.models import CodePayload, FileAction, FileChange, PlanPayload
 
 if TYPE_CHECKING:
@@ -78,8 +79,8 @@ class CoderAgent(BaseAgent):
         使用する :class:`~src.core.providers.BaseProvider` 実装。
     """
 
-    def __init__(self, provider: "BaseProvider") -> None:
-        super().__init__(provider, role="coder")
+    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
+        super().__init__(provider, role="coder", workspace_path=workspace_path)
 
     # ------------------------------------------------------------------
     # Public API
@@ -112,20 +113,41 @@ class CoderAgent(BaseAgent):
             retry + 1, plan.target_files,
         )
 
-        feedback_section = (
-            _FEEDBACK_SECTION.format(feedback=reviewer_feedback)
-            if reviewer_feedback
-            else ""
-        )
-        prompt = _SYSTEM_PROMPT.format(
+        # src/core/agents.py のロジックを使用してプロンプトを構築（初期コンテキスト取得を含む）
+        prompt = build_coder_prompt(
             goal=plan.goal,
-            target_files=", ".join(plan.target_files),
-            constraints=", ".join(plan.constraints),
-            acceptance=", ".join(plan.acceptance_criteria),
+            target_files=plan.target_files,
+            constraints=plan.constraints,
+            acceptance=plan.acceptance_criteria,
             retry=retry,
-            reviewer_feedback=feedback_section,
+            workspace_path=self._workspace_path,
+            reviewer_feedback=reviewer_feedback
         )
+        
+        response = self._call_llm(prompt)
+        return self._parse_response(response, plan=plan, retry=retry)
 
+    def remediate(
+        self,
+        plan: PlanPayload,
+        retry: int,
+        failure_reason: str,
+        stacktrace: str,
+        current_source: str
+    ) -> CodePayload:
+        """実行エラーを分析し、修正コードを生成します。"""
+        log.info("[Coder] Remediating code (attempt %d) due to: %s", retry, failure_reason)
+        
+        prompt = build_remediation_prompt(
+            goal=plan.goal,
+            target_files=plan.target_files,
+            retry=retry,
+            workspace_path=self._workspace_path,
+            failure_reason=failure_reason,
+            stacktrace=stacktrace,
+            current_source=current_source
+        )
+        
         response = self._call_llm(prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 

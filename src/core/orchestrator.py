@@ -44,7 +44,10 @@ from src.core.models import (
     ReviewPayload,
     ReviewStatus,
     IssueSeverity,
+    RunResult,
 )
+from src.core.runner import PythonRunner
+from src.core.agents import build_remediation_prompt
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -158,9 +161,10 @@ class Orchestrator:
         self._state     = ARKState(self._workspace)
 
         # エージェントにプロバイダーを依存性注入（ファクトリー経由）
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg))
-        self._coder     = CoderAgent(get_provider("coder",     self._cfg))
-        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg))
+        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._workspace)
+        self._coder     = CoderAgent(get_provider("coder",     self._cfg), workspace_path=self._workspace)
+        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg), workspace_path=self._workspace)
+        self._runner    = PythonRunner(timeout=30)
 
         log.info(
             "Orchestrator initialized — providers: architect=%r coder=%r reviewer=%r",
@@ -215,16 +219,62 @@ class Orchestrator:
         code_result: CodePayload | None = None
 
         last_review: ReviewPayload | None = None
+        execution_feedback: str = ""
 
         while self._state.retry_count < MAX_RETRIES:
             retry = self._state.retry_count
 
-            # CODING（前回のレビューフィードバックを Coder に渡す）
-            feedback = last_review.summary if last_review else ""
+            # CODING（前回のレビューフィードバック または 実行エラーを Coder に渡す）
             self._state.transition(Phase.CODING)
-            code_result = self._phase_code(plan, retry, reviewer_feedback=feedback)
+            
+            if execution_feedback:
+                # 実行エラーに基づく修正依頼
+                code_result = self._coder.remediate(
+                    plan, 
+                    retry,
+                    failure_reason="Runtime Error",
+                    stacktrace=execution_feedback,
+                    current_source=code_result.files[0].content if code_result and code_result.files else ""
+                )
+            elif last_review:
+                # レビューフィードバックに基づく修正依頼
+                code_result = self._phase_code(plan, retry, reviewer_feedback=last_review.summary)
+            else:
+                # 初回または通常の継続
+                code_result = self._phase_code(plan, retry)
 
+            # -----------------------------------------------------------------
+            # RUNNING (Self-Healing / Dynamic Verification)
+            # -----------------------------------------------------------------
+            run_result = self._phase_run(code_result)
+            if not run_result.success:
+                self._state.retry_count += 1
+                
+                # --- ここよ！このログが ARK の「根性」を可視化するわ！🚀✨ ---
+                retry_msg = f"[🔄 SELF-HEALING] Attempt {self._state.retry_count}/{MAX_RETRIES}"
+                print(f"\n{retry_msg}: Detecting issues and preparing fix...")
+                
+                self._state.push_event(
+                    Phase.CODING, "FAIL",
+                    f"{retry_msg} — Error: {run_result.stderr[:100]}"
+                )
+                self._state.save()
+                
+                # エラー内容を保存して次のループで修正させる
+                execution_feedback = run_result.stderr
+                log.warning(f"⚠️  {retry_msg}: Execution failed. Feeding back to Coder...")
+                
+                if self._state.retry_count >= MAX_RETRIES:
+                    log.error(f"🚨 Max retries reached ({MAX_RETRIES}). ARK couldn't fix it this time...💔")
+                    break
+                continue
+            
+            # 成功した場合はフィードバックをクリア
+            execution_feedback = ""
+
+            # -----------------------------------------------------------------
             # REVIEWING
+            # -----------------------------------------------------------------
             self._state.transition(Phase.REVIEWING)
             review = self._phase_review(code_result, retry)
             last_review = review
@@ -295,6 +345,29 @@ class Orchestrator:
         log.info("[REVIEW] Reviewer auditing output …")
         review = self._reviewer.review(code, retry)
         return review
+
+    def _phase_run(self, code: CodePayload) -> RunResult:
+        log.info("[RUN]  Executing generated code for verification …")
+        # 最初のファイルをメインスクリプトとして実行
+        if not code.files:
+            return RunResult(exit_code=-1, stdout="", stderr="No files generated", duration=0)
+        
+        main_file = self._workspace / code.files[0].path
+        # まだコミットされていないため、一時的に書き出すか、
+        # 既存のコミットロジックを流用する。
+        # ここでは検証用に一時的に書き出す（本番コミットは後ほど）。
+        temp_path = self._workspace / f"_verify_{uuid.uuid4().hex[:8]}.py"
+        try:
+            temp_path.write_text(code.files[0].content, encoding="utf-8")
+            result = self._runner.run_file(temp_path)
+            if result.success:
+                log.info("✅  Execution SUCCESS")
+            else:
+                log.error("❌  Execution FAILED (exit=%d)", result.exit_code)
+            return result
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _phase_commit(self, code: CodePayload) -> list[Path]:
         """Write all generated files into workspace/."""
