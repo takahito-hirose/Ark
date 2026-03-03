@@ -104,19 +104,29 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
 
     provider_name: str = getattr(cfg, role_to_attr[role_lower], "ollama").lower().strip()
 
-    log.info("Role %r → provider %r", role, provider_name)
+    # ---- ロールからモデル名を解決 ------------------------------------------
+    role_to_model: dict[str, str] = {
+        "architect": "architect_model",
+        "coder":     "coder_model",
+        "reviewer":  "reviewer_model",
+    }
+    model_name: str = getattr(cfg, role_to_model[role_lower], cfg.model_name)
+
+    log.info("Role %r → provider %r (model=%s)", role, provider_name, model_name)
 
     # ---- プロバイダー名からインスタンスを生成 --------------------------------
-    return _build_provider(provider_name, cfg)
+    return _build_provider(provider_name, model_name, cfg)
 
 
-def _build_provider(provider_name: str, cfg: "ARKConfig") -> BaseProvider:
+def _build_provider(provider_name: str, model_name: str, cfg: "ARKConfig") -> BaseProvider:
     """プロバイダー名と設定からインスタンスを生成する内部ヘルパー。
 
     Parameters
     ----------
     provider_name:
         ``"ollama"`` / ``"mock"`` / ``"gemini"`` のいずれか。
+    model_name:
+        使用するモデル名。
     cfg:
         ARK設定オブジェクト。
 
@@ -139,7 +149,7 @@ def _build_provider(provider_name: str, cfg: "ARKConfig") -> BaseProvider:
     if provider_name == "ollama":
         provider = OllamaProvider(
             api_endpoint=cfg.api_endpoint,
-            model_name=cfg.model_name,
+            model_name=model_name,
         )
 
     elif provider_name == "mock":
@@ -147,8 +157,8 @@ def _build_provider(provider_name: str, cfg: "ARKConfig") -> BaseProvider:
 
     elif provider_name == "gemini":
         provider = GeminiProvider(
-            api_key=getattr(cfg, "gemini_api_key", ""),
-            model_name=getattr(cfg, "gemini_model_name", "gemini-1.5-flash"),
+            api_key=cfg.gemini_api_key,
+            model_name=model_name,
         )
 
     else:

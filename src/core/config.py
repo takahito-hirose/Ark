@@ -106,6 +106,14 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
         # --- Gemini 設定 ---
         # 環境変数: ARK_GEMINI_API_KEY / ARK_GEMINI_MODEL_NAME
         gemini_api_key: str = ""
+        
+        # ロールごとのモデル指定 (Geminiで主に使用)
+        # 指定がない場合は gemini_model_name が使われる (factory.py 側の実装に依る)
+        architect_model: str = "gemini-1.5-pro"
+        coder_model: str = "gemini-1.5-flash"
+        reviewer_model: str = "gemini-1.5-flash"
+
+        # 互換性のためのデフォルトモデル名
         gemini_model_name: str = "gemini-1.5-flash"
 
         @field_validator("workspace_path", mode="before")
@@ -205,6 +213,9 @@ else:  # pragma: no cover
         # --- Gemini 設定 ---
         gemini_api_key: str = ""
         gemini_model_name: str = "gemini-1.5-flash"
+        architect_model: str = "gemini-1.5-pro"
+        coder_model: str = "gemini-1.5-flash"
+        reviewer_model: str = "gemini-1.5-flash"
 
         def __post_init__(self) -> None:
             self.workspace_path = Path(self.workspace_path).resolve()
@@ -223,6 +234,9 @@ else:  # pragma: no cover
             "reviewer_provider":  "ARK_REVIEWER_PROVIDER",
             "gemini_api_key":     "ARK_GEMINI_API_KEY",
             "gemini_model_name":  "ARK_GEMINI_MODEL_NAME",
+            "architect_model":    "ARK_ARCHITECT_MODEL",
+            "coder_model":        "ARK_CODER_MODEL",
+            "reviewer_model":     "ARK_REVIEWER_MODEL",
         }
 
         @staticmethod

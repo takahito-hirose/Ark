@@ -141,9 +141,13 @@ class TestGetProvider(unittest.TestCase):
         # ConfigLoader.load() を経由してデフォルト設定を取得しつつ
         # プロバイダーをすべて "mock" に上書きする
         self.cfg = ConfigLoader.load()
-        self.cfg.architect_provider = "mock"  # type: ignore[assignment]
-        self.cfg.coder_provider = "mock"      # type: ignore[assignment]
-        self.cfg.reviewer_provider = "mock"    # type: ignore[assignment]
+        self.cfg.architect_provider = "mock"
+        self.cfg.coder_provider = "mock"
+        self.cfg.reviewer_provider = "mock"
+        # 新しく追加したモデル設定も一応 mock ではデフォルトのままにするか、明示的に設定
+        self.cfg.architect_model = "gemini-3.1-pro"
+        self.cfg.coder_model = "gemini-3-flash"
+        self.cfg.reviewer_model = "gemini-3-flash"
 
     def test_get_provider_architect_returns_mock(self) -> None:
         """get_provider('architect') が MockProvider を返すこと。"""
@@ -211,9 +215,9 @@ class TestFullMockWorkflow(unittest.TestCase):
 
     def _make_mock_cfg(self) -> "ARKConfig":
         cfg = ConfigLoader.load()
-        cfg.architect_provider = "mock"  # type: ignore[assignment]
-        cfg.coder_provider = "mock"      # type: ignore[assignment]
-        cfg.reviewer_provider = "mock"   # type: ignore[assignment]
+        cfg.architect_provider = "mock"
+        cfg.coder_provider = "mock"
+        cfg.reviewer_provider = "mock"
         return cfg
 
     def test_all_agents_can_generate_without_connection(self) -> None:

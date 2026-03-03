@@ -137,6 +137,9 @@ class MockProvider(BaseProvider):
         """プロンプトの内容を読み取り、フェーズに応じたダミー回答を生成する。"""
         log.info("MockProvider.generate() called — generating contextual response")
 
+        if self._template:
+            return self._template.format(prompt=prompt)
+
         # 1. PLANNING (Architect) への回答
         if "PLANNING" in prompt or "PlanPayload" in prompt:
             return (
@@ -168,7 +171,7 @@ class MockProvider(BaseProvider):
             return '{"status": "PASS", "score": 1.0, "summary": "Perfect!", "issues": []}'
 
         # 4. デフォルト（どれにも当てはまらない場合）
-        return "[MOCK] Default response for: " + prompt[:50]
+        return f"[MOCK RESPONSE] Default response for: {prompt[:50]}"
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +195,7 @@ class GeminiProvider(BaseProvider):
         使用するGeminiモデル名 (例: ``gemini-1.5-flash``)。
     """
 
-    def __init__(self, api_key: str = "", model_name: str = "gemini-1.5-flash") -> None:
+    def __init__(self, api_key: str = "", model_name: str = "gemini-2.0-flash") -> None:
         self._api_key = api_key
         self._model_name = model_name
         self._model = None  # 遅延初期化
@@ -247,8 +250,19 @@ class GeminiProvider(BaseProvider):
         self._ensure_initialized()
         log.debug("GeminiProvider.generate() called (model=%s)", self._model_name)
 
-        response = self._model.generate_content(prompt)  # type: ignore[union-attr]
-        return response.text
+        import time
+        time.sleep(4) # 4秒待つことで、1分間に15回（60秒÷4秒）のペースを絶対守る
+        
+        try:
+            # type: ignore[union-attr] because _model is set in _ensure_initialized
+            response = self._model.generate_content(prompt)
+            if not response.text:
+                 log.warning("GeminiProvider: 空のレスポンスが返されました。")
+                 return ""
+            return response.text
+        except Exception as exc:
+            log.error("GeminiProvider generation failed: %s", exc)
+            raise RuntimeError(f"GeminiProvider: 応答の生成中にエラーが発生しました: {exc}") from exc
 
     def __repr__(self) -> str:
         return f"<GeminiProvider model={self._model_name!r}>"
