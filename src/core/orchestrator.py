@@ -158,9 +158,9 @@ class Orchestrator:
         self._state     = ARKState(self._workspace)
 
         # エージェントにプロバイダーを依存性注入（ファクトリー経由）
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg))
-        self._coder     = CoderAgent(get_provider("coder",     self._cfg))
-        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg))
+        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._workspace)
+        self._coder     = CoderAgent(get_provider("coder",     self._cfg), workspace_path=self._workspace)
+        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg), workspace_path=self._workspace)
 
         log.info(
             "Orchestrator initialized — providers: architect=%r coder=%r reviewer=%r",

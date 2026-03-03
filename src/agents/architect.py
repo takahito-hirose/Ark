@@ -18,6 +18,7 @@ import re
 from typing import TYPE_CHECKING
 
 from src.agents.base_agent import BaseAgent
+from src.core.agents import build_architect_prompt
 from src.core.models import PlanPayload
 
 if TYPE_CHECKING:
@@ -63,8 +64,8 @@ class ArchitectAgent(BaseAgent):
         使用する :class:`~src.core.providers.BaseProvider` 実装。
     """
 
-    def __init__(self, provider: "BaseProvider") -> None:
-        super().__init__(provider, role="architect")
+    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
+        super().__init__(provider, role="architect", workspace_path=workspace_path)
 
     # ------------------------------------------------------------------
     # Public API
@@ -86,7 +87,8 @@ class ArchitectAgent(BaseAgent):
             生成された実装計画。LLMパース失敗時はデフォルト値を使用。
         """
         log.info("[Architect] Analysing goal: %r", goal[:60])
-        prompt = _SYSTEM_PROMPT.format(goal=goal)
+        # src/core/agents.py のロジックを使用してプロンプトを構築（初期コンテキスト取得を含む）
+        prompt = build_architect_prompt(goal, self._workspace_path)
         response = self._call_llm(prompt)
         return self._parse_response(response, goal=goal, task_id=task_id)
 
