@@ -27,13 +27,26 @@ workspace_path: "workspace"
 #   - 職場（オフライン）: architect_provider: "mock"
 #   - 自宅（Ollama稼働）:   architect_provider: "ollama"
 #   - 本番環境:             architect_provider: "gemini"
-architect_provider: "ollama"
-coder_provider: "ollama"
-reviewer_provider: "ollama"
+# architect_provider: "ollama"
+# coder_provider: "ollama"
+#reviewer_provider: "ollama"
+
+architect_provider: "gemini"
+coder_provider: "gemini"
+reviewer_provider: "gemini"
 
 # ---------------------------------------------------------------------------
 # Google Gemini settings (used when *_provider is set to "gemini")
 # ---------------------------------------------------------------------------
 # セキュリティのため、APIキーは環境変数 ARK_GEMINI_API_KEY で指定推奨
 gemini_api_key: ""
-gemini_model_name: "gemini-1.5-flash"
+
+# ロールごとのモデル選択
+# Architect: 設計・推論に強いモデル
+architect_model: "gemini-2.0-flash"
+# Coder/Reviewer: 高速・軽量なモデル
+coder_model: "gemini-2.0-flash"
+reviewer_model: "gemini-2.0-flash"
+
+# デフォルト（互換性用）
+gemini_model_name: "gemini-2.0-flash"
