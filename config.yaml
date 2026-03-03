@@ -16,3 +16,24 @@ api_endpoint: "http://localhost:11434"
 # Absolute (or relative) path to the AI sandbox workspace.
 # Relative paths are resolved from the project root.
 workspace_path: "workspace"
+
+# ---------------------------------------------------------------------------
+# Per-agent provider settings (Strategy pattern)
+# ---------------------------------------------------------------------------
+# Available providers: "ollama" | "gemini" | "mock"
+# Override via environment variables: ARK_ARCHITECT_PROVIDER etc.
+#
+# Use cases:
+#   - 職場（オフライン）: architect_provider: "mock"
+#   - 自宅（Ollama稼働）:   architect_provider: "ollama"
+#   - 本番環境:             architect_provider: "gemini"
+architect_provider: "ollama"
+coder_provider: "ollama"
+reviewer_provider: "ollama"
+
+# ---------------------------------------------------------------------------
+# Google Gemini settings (used when *_provider is set to "gemini")
+# ---------------------------------------------------------------------------
+# セキュリティのため、APIキーは環境変数 ARK_GEMINI_API_KEY で指定推奨
+gemini_api_key: ""
+gemini_model_name: "gemini-1.5-flash"

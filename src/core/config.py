@@ -91,9 +91,22 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
             extra="ignore",
         )
 
+        # --- LLM 基本設定 ---
         model_name: str = "deepseek-coder-v2"
         api_endpoint: str = "http://localhost:11434"
         workspace_path: Path = _project_root() / "workspace"
+
+        # --- エージェントごとのプロバイダー設定 ---
+        # 有効な値: "ollama" | "gemini" | "mock"
+        # 環境変数: ARK_ARCHITECT_PROVIDER / ARK_CODER_PROVIDER / ARK_REVIEWER_PROVIDER
+        architect_provider: str = "ollama"
+        coder_provider: str = "ollama"
+        reviewer_provider: str = "ollama"
+
+        # --- Gemini 設定 ---
+        # 環境変数: ARK_GEMINI_API_KEY / ARK_GEMINI_MODEL_NAME
+        gemini_api_key: str = ""
+        gemini_model_name: str = "gemini-1.5-flash"
 
         @field_validator("workspace_path", mode="before")
         @classmethod
@@ -155,9 +168,13 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
             """Pretty-print configuration to stdout."""
             print("\n⚙️   ARK Configuration")
             print("  ─────────────────────────────────────")
-            print(f"  model_name     : {cfg.model_name}")
-            print(f"  api_endpoint   : {cfg.api_endpoint}")
-            print(f"  workspace_path : {cfg.workspace_path}")
+            print(f"  model_name         : {cfg.model_name}")
+            print(f"  api_endpoint       : {cfg.api_endpoint}")
+            print(f"  workspace_path     : {cfg.workspace_path}")
+            print(f"  architect_provider : {cfg.architect_provider}")
+            print(f"  coder_provider     : {cfg.coder_provider}")
+            print(f"  reviewer_provider  : {cfg.reviewer_provider}")
+            print(f"  gemini_model_name  : {cfg.gemini_model_name}")
             print("  ─────────────────────────────────────\n")
 
 
@@ -173,11 +190,21 @@ else:  # pragma: no cover
     class ARKConfig:  # type: ignore[no-redef]
         """Minimal ARK configuration (pydantic-settings not available)."""
 
+        # --- LLM 基本設定 ---
         model_name: str = "deepseek-coder-v2"
         api_endpoint: str = "http://localhost:11434"
         workspace_path: Path = dataclasses.field(
             default_factory=lambda: _project_root() / "workspace"
         )
+
+        # --- エージェントごとのプロバイダー設定 ---
+        architect_provider: str = "ollama"
+        coder_provider: str = "ollama"
+        reviewer_provider: str = "ollama"
+
+        # --- Gemini 設定 ---
+        gemini_api_key: str = ""
+        gemini_model_name: str = "gemini-1.5-flash"
 
         def __post_init__(self) -> None:
             self.workspace_path = Path(self.workspace_path).resolve()
@@ -188,9 +215,14 @@ else:  # pragma: no cover
 
         _ENV_PREFIX = "ARK_"
         _FIELD_MAP: dict[str, str] = {
-            "model_name": "ARK_MODEL_NAME",
-            "api_endpoint": "ARK_API_ENDPOINT",
-            "workspace_path": "ARK_WORKSPACE_PATH",
+            "model_name":         "ARK_MODEL_NAME",
+            "api_endpoint":       "ARK_API_ENDPOINT",
+            "workspace_path":     "ARK_WORKSPACE_PATH",
+            "architect_provider": "ARK_ARCHITECT_PROVIDER",
+            "coder_provider":     "ARK_CODER_PROVIDER",
+            "reviewer_provider":  "ARK_REVIEWER_PROVIDER",
+            "gemini_api_key":     "ARK_GEMINI_API_KEY",
+            "gemini_model_name":  "ARK_GEMINI_MODEL_NAME",
         }
 
         @staticmethod
@@ -214,7 +246,11 @@ else:  # pragma: no cover
         def display(cfg: ARKConfig) -> None:
             print("\n⚙️   ARK Configuration")
             print("  ─────────────────────────────────────")
-            print(f"  model_name     : {cfg.model_name}")
-            print(f"  api_endpoint   : {cfg.api_endpoint}")
-            print(f"  workspace_path : {cfg.workspace_path}")
+            print(f"  model_name         : {cfg.model_name}")
+            print(f"  api_endpoint       : {cfg.api_endpoint}")
+            print(f"  workspace_path     : {cfg.workspace_path}")
+            print(f"  architect_provider : {cfg.architect_provider}")
+            print(f"  coder_provider     : {cfg.coder_provider}")
+            print(f"  reviewer_provider  : {cfg.reviewer_provider}")
+            print(f"  gemini_model_name  : {cfg.gemini_model_name}")
             print("  ─────────────────────────────────────\n")
