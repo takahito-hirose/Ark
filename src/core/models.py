@@ -30,6 +30,20 @@ class Phase(str, Enum):
     DONE       = "DONE"
 
 
+@dataclass
+class RunResult:
+    """Result of a code execution attempt."""
+    exit_code: int
+    stdout:    str
+    stderr:    str
+    duration:  float
+    timed_out: bool = False
+
+    @property
+    def success(self) -> bool:
+        return self.exit_code == 0 and not self.timed_out
+
+
 class ReviewStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"

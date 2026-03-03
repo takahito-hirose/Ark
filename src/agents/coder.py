@@ -19,7 +19,7 @@ import textwrap
 from typing import TYPE_CHECKING
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_coder_prompt
+from src.core.agents import build_coder_prompt, build_remediation_prompt
 from src.core.models import CodePayload, FileAction, FileChange, PlanPayload
 
 if TYPE_CHECKING:
@@ -122,6 +122,30 @@ class CoderAgent(BaseAgent):
             retry=retry,
             workspace_path=self._workspace_path,
             reviewer_feedback=reviewer_feedback
+        )
+        
+        response = self._call_llm(prompt)
+        return self._parse_response(response, plan=plan, retry=retry)
+
+    def remediate(
+        self,
+        plan: PlanPayload,
+        retry: int,
+        failure_reason: str,
+        stacktrace: str,
+        current_source: str
+    ) -> CodePayload:
+        """実行エラーを分析し、修正コードを生成します。"""
+        log.info("[Coder] Remediating code (attempt %d) due to: %s", retry, failure_reason)
+        
+        prompt = build_remediation_prompt(
+            goal=plan.goal,
+            target_files=plan.target_files,
+            retry=retry,
+            workspace_path=self._workspace_path,
+            failure_reason=failure_reason,
+            stacktrace=stacktrace,
+            current_source=current_source
         )
         
         response = self._call_llm(prompt)
