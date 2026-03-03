@@ -125,51 +125,50 @@ class OllamaProvider(BaseProvider):
 
 class MockProvider(BaseProvider):
     """接続不要のダミープロバイダー。
-
-    外部LLMへの接続を一切行わず、固定のダミー文字列を返す。
-    テスト・CI環境・オフライン開発に使用する。
-
-    Parameters
-    ----------
-    response_template:
-        返却するレスポンスのテンプレート。
-        ``{prompt}`` プレースホルダーを含む場合はプロンプトで置換される。
+    入力プロンプトのキーワードに応じて、適切な構造化データ(JSON/Markdown)を返す。
     """
 
-    _DEFAULT_TEMPLATE: str = (
-        "[MOCK RESPONSE] このレスポンスはMockProviderが生成したダミーです。\n"
-        "Prompt受信: {prompt}\n"
-        "--- 生成コード (mock) ---\n"
-        "def main() -> None:\n"
-        '    print("Hello from ARK MockProvider!")\n\n'
-        'if __name__ == "__main__":\n'
-        "    main()\n"
-    )
-
     def __init__(self, response_template: Optional[str] = None) -> None:
-        self._template = response_template or self._DEFAULT_TEMPLATE
-        log.debug("MockProvider initialized")
+        # 互換性のために残すが、基本は generate 内で分岐させる
+        self._template = response_template 
+        log.debug("MockProvider initialized (Context-Aware Mode)")
 
     def generate(self, prompt: str) -> str:
-        """ダミー文字列を返す。外部接続は行わない。
+        """プロンプトの内容を読み取り、フェーズに応じたダミー回答を生成する。"""
+        log.info("MockProvider.generate() called — generating contextual response")
 
-        Parameters
-        ----------
-        prompt:
-            受信したプロンプト（レスポンスに埋め込まれる）。
+        # 1. PLANNING (Architect) への回答
+        if "PLANNING" in prompt or "PlanPayload" in prompt:
+            return (
+                '{"reasoning": "Mock planning executed.", '
+                '"tasks": [{"task_id": "T1", "description": "Implement hello logic", "estimated_effort": "1h"}]}'
+            )
 
-        Returns
-        -------
-        str
-            固定のダミーレスポンス文字列。
-        """
-        log.info("MockProvider.generate() called — returning dummy response")
-        # promptが長い場合は先頭100文字のみ埋め込む
-        short_prompt = prompt[:100] + ("..." if len(prompt) > 100 else "")
-        return self._template.format(prompt=short_prompt)
+        # 2. CODING (Coder) への回答
+        if "CODING" in prompt or "CodePayload" in prompt:
+            # 抽出ロジックを通すために、必ずバッククォートのブロックを含めるのが「本質」
+            return (
+                "I have written the code as requested.\n\n"
+                "```python\n"
+                "def hello():\n"
+                "    print('Hello from ARK Modular Mock!')\n"
+                "```"
+            )
 
-    def __repr__(self) -> str:
-        return "<MockProvider>"
+        # 3. REVIEWING (Reviewer) への回答
+        if "REVIEWING" in prompt or "ReviewPayload" in prompt:
+            # テストコードの期待値に合わせるため、retry回数で挙動を変える「焦らしプレイ」
+            # プロンプトの中に "retry: 0" または "retry=0" が含まれているかチェック
+            if "retry: 0" in prompt or "retry=0" in prompt:
+                return (
+                    '{"status": "FAIL", "score": 0.5, "summary": "Needs improvement", '
+                    '"issues": ["Code is too simple", "Missing docstrings"]}'
+                )
+            # retryが1以上のときは PASS を返す
+            return '{"status": "PASS", "score": 1.0, "summary": "Perfect!", "issues": []}'
+
+        # 4. デフォルト（どれにも当てはまらない場合）
+        return "[MOCK] Default response for: " + prompt[:50]
 
 
 # ---------------------------------------------------------------------------
