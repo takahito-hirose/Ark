@@ -1,0 +1,13 @@
+# --- Core UI & Dashboard ---
+streamlit
+
+# --- Environment & Config ---
+python-dotenv
+pyyaml
+
+# --- LLM Providers ---
+google-generativeai
+google-genai
+
+# --- Aesthetics & Tools (ARKくんのお気に入り) ---
+rich
