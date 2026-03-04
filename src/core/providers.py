@@ -177,92 +177,64 @@ class MockProvider(BaseProvider):
 # ---------------------------------------------------------------------------
 # GeminiProvider (雛形)
 # ---------------------------------------------------------------------------
+# --- src/core/providers.py の GeminiProvider セクションを以下に差し替え ---
 
 class GeminiProvider(BaseProvider):
-    """Google Gemini API を使用するプロバイダー。
+    """Google Gemini API を使用するプロバイダー（重量課金・爆速チューニング版）。"""
 
-    .. note::
-        このクラスは現時点では **雛形実装** です。
-        実際に使用するには ``google-generativeai`` パッケージと
-        有効な API キーが必要です。
-
-    Parameters
-    ----------
-    api_key:
-        Google AI Studio で発行したAPIキー。
-        省略時は環境変数 ``GOOGLE_API_KEY`` を参照する。
-    model_name:
-        使用するGeminiモデル名 (例: ``gemini-1.5-flash``)。
-    """
-
-    def __init__(self, api_key: str = "", model_name: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: str = "", model_name: str = "gemini-3-flash") -> None:
         self._api_key = api_key
         self._model_name = model_name
-        self._model = None  # 遅延初期化
+        self._model = None
 
         if not self._api_key:
             import os
             self._api_key = os.environ.get("GOOGLE_API_KEY", "")
 
-        log.debug("GeminiProvider initialized: model=%s", model_name)
+        # 課金枠パワーをフル活用するための設定
+        self._generation_config = {
+            "temperature": 0.2,       # コード生成なので少し低めにして正確性をアップ
+            "top_p": 0.95,
+            "max_output_tokens": 8192, # 1024から一気に8倍へ！長文コードも怖くないわ
+        }
+
+        log.debug("GeminiProvider (Paid Mode) initialized: model=%s", model_name)
 
     def _ensure_initialized(self) -> None:
-        """google-generativeaiクライアントを遅延初期化する。"""
         if self._model is not None:
             return
 
         try:
-            import google.generativeai as genai  # type: ignore[import]
+            import google.generativeai as genai
         except ImportError as exc:
-            raise RuntimeError(
-                "GeminiProviderを使用するには `google-generativeai` パッケージが必要です。\n"
-                "インストール: pip install google-generativeai"
-            ) from exc
+            raise RuntimeError("pip install google-generativeai を実行してね！") from exc
 
         if not self._api_key:
-            raise RuntimeError(
-                "GeminiProviderを使用するには有効なAPIキーが必要です。\n"
-                "config.yaml の `gemini_api_key` または環境変数 `GOOGLE_API_KEY` を設定してください。"
-            )
+            raise RuntimeError("APIキーが見つからないわ！.envを確認して？")
 
         genai.configure(api_key=self._api_key)
-        self._model = genai.GenerativeModel(self._model_name)
-        log.info("GeminiProvider: model %r ready", self._model_name)
+        self._model = genai.GenerativeModel(
+            model_name=self._model_name,
+            generation_config=self._generation_config
+        )
+        log.info("GeminiProvider: Paid Tier Model %r Ready 🚀", self._model_name)
 
     def generate(self, prompt: str) -> str:
-        """Gemini APIにプロンプトを送信し、応答テキストを返す。
-
-        Parameters
-        ----------
-        prompt:
-            送信するプロンプト文字列。
-
-        Returns
-        -------
-        str
-            Geminiが生成したテキスト。
-
-        Raises
-        ------
-        RuntimeError
-            `google-generativeai` 未インストールまたはAPIキー未設定の場合。
-        """
         self._ensure_initialized()
-        log.debug("GeminiProvider.generate() called (model=%s)", self._model_name)
+        log.debug("GeminiProvider.generate() calling (no-sleep mode)...")
 
-        import time
-        time.sleep(4) # 4秒待つことで、1分間に15回（60秒÷4秒）のペースを絶対守る
-        
         try:
-            # type: ignore[union-attr] because _model is set in _ensure_initialized
+            # 課金枠なら time.sleep(4) なんて不要！そのまま突っ込むわよ！
             response = self._model.generate_content(prompt)
+            
             if not response.text:
-                 log.warning("GeminiProvider: 空のレスポンスが返されました。")
-                 return ""
+                log.warning("GeminiProvider: 空のレスポンスが返されました。")
+                return ""
+                
             return response.text
         except Exception as exc:
             log.error("GeminiProvider generation failed: %s", exc)
-            raise RuntimeError(f"GeminiProvider: 応答の生成中にエラーが発生しました: {exc}") from exc
+            raise RuntimeError(f"GeminiProviderエラー: {exc}") from exc
 
     def __repr__(self) -> str:
-        return f"<GeminiProvider model={self._model_name!r}>"
+        return f"<GeminiProvider model={self._model_name!r} mode='PAID_SPEED'>"
