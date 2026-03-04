@@ -48,7 +48,8 @@ from src.core.models import (
     ExecutionAttempt,
 )
 from src.core.runner import PythonRunner
-from src.core.agents import build_remediation_prompt
+from src.core.git_tools import GitTool
+from src.core.agents import build_remediation_prompt, build_commit_msg_prompt
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -166,6 +167,7 @@ class Orchestrator:
         self._coder     = CoderAgent(get_provider("coder",     self._cfg), workspace_path=self._workspace)
         self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg), workspace_path=self._workspace)
         self._runner    = PythonRunner(timeout=30)
+        self._git       = GitTool(self._workspace)
 
         log.info(
             "Orchestrator initialized — providers: architect=%r coder=%r reviewer=%r",
@@ -321,7 +323,7 @@ class Orchestrator:
         # ── PHASE 4: COMMIT ────────────────────────────────────────────────
         self._state.transition(Phase.COMMITTING)
         assert code_result is not None
-        committed = self._phase_commit(code_result)
+        committed = self._phase_commit(code_result, plan.goal)
 
         self._state.transition(Phase.DONE)
         log.info("🏛️  ARK loop complete — artefacts committed to: %s", self._workspace)
@@ -379,24 +381,26 @@ class Orchestrator:
             if temp_path.exists():
                 temp_path.unlink()
 
-    def _phase_commit(self, code: CodePayload) -> list[Path]:
-        """Write all generated files into workspace/."""
+    def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
+        """Write all generated files into workspace/ and perform Git operations."""
+        # 1. Cleanup temporary verification files
+        log.info("[COMMIT] Cleaning up temporary files...")
+        for temp_file in self._workspace.glob("_verify_*.py"):
+            try:
+                temp_file.unlink()
+                log.debug("Deleted temp file: %s", temp_file)
+            except Exception as e:
+                log.warning("Failed to delete temp file %s: %s", temp_file, e)
+
+        # 2. Write files to workspace
         committed: list[Path] = []
         for fc in code.files:
-            # 💡 修正ポイント：
-            # エージェントが返すパスが相対（output.py）でも
-            # 確実にワークスペース内に収めるように結合する
             file_path = Path(fc.path)
-            
-            # もしエージェントが 'workspace/file.py' と返してきても、
-            # ファイル名だけを取り出すか、安全に結合する
             if file_path.parts[0] == self._workspace.name:
-                # 最初の階層が 'workspace' なら、それ以降を使う
                 safe_path = self._workspace.joinpath(*file_path.parts[1:])
             else:
                 safe_path = self._workspace / file_path
 
-            # サンドボックス・チェック（絶対パスで厳密に）
             try:
                 safe_path.resolve().relative_to(self._workspace.resolve())
             except ValueError:
@@ -412,6 +416,33 @@ class Orchestrator:
                 safe_path.write_text(fc.content, encoding="utf-8")
                 committed.append(safe_path)
                 log.info("[COMMIT] Written %s (%d bytes)", safe_path, len(fc.content))
+
+        # 3. Git Operations
+        try:
+            # Topic Branch
+            branch_name = self._git.create_topic_branch(self._state.task_id)
+            
+            # Generate Commit Message
+            log.info("[COMMIT] Generating commit message via LLM...")
+            prompt = build_commit_msg_prompt(goal, [f"{f.path}" for f in code.files])
+            # Coder エージェント（または直接 Provider）を使ってメッセージ生成
+            raw_msg = self._coder._call_llm(prompt)
+            commit_message = raw_msg.strip().split("\n")[0] # 最初の1行のみ使用
+            
+            # Commit
+            if self._git.commit(commit_message):
+                # Push
+                try:
+                    self._git.push(branch_name)
+                except Exception as e:
+                    log.error("❌ Push failed (conflict?): %s", e)
+                    log.warning("Skipping push but commit remains in local branch %s", branch_name)
+            else:
+                log.info("No changes to commit. Skiping Git flow.")
+
+        except Exception as e:
+            log.error("❌ Git failed: %s", e)
+            log.warning("Proceeding without Git operations.")
 
         self._state.push_event(
             Phase.COMMITTING, "OK",

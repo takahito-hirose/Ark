@@ -168,3 +168,29 @@ FILE: <ファイルパス>
 ## 試行回数
 {retry}回目の修正試行（セルフヒーリング）
 """
+
+def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
+    """
+    今回の変更内容を要約し、Conventional Commits 形式のメッセージを生成します。
+    """
+    return f"""\
+あなたはARKフレームワークのCoder SYLPHです。
+以下の実装結果を要約し、Gitのコミットメッセージ（1行）を生成してください。
+
+## ゴール
+{goal}
+
+## 変更されたファイル
+{", ".join(files)}
+
+## 制約（厳守）
+- 形式: <type>: <description>
+- type: fix, feat, docs, style, refactor, test, chore
+- 英語で記述すること。
+- 50文字以内。
+- 本文等は含まず、メッセージ1行のみを出力すること。
+
+## 出力例
+feat: implement short-term memory logic
+fix: handle port conflict in web server
+"""
