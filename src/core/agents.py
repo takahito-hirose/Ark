@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from src.core.tools import read_file
+from src.core.models import ExecutionAttempt
 
 log = logging.getLogger("ARK.AgentsCore")
 
@@ -97,4 +98,73 @@ FILE: <ファイルパス>
 ## 試行回数
 {retry}回目の実装（0が初回）
 {feedback_section}
+"""
+
+def build_remediation_prompt(
+    goal: str,
+    target_files: list[str],
+    retry: int,
+    workspace_path: Path,
+    failure_reason: str,
+    stacktrace: str,
+    current_source: str,
+    attempt_history: list[ExecutionAttempt] | None = None
+) -> str:
+    """
+    実行エラーが発生した際の修正用プロンプトを構築します。
+    過去の失敗履歴（Short-Term Memory）を含めます。
+    """
+    context = get_initial_context(workspace_path)
+    
+    history_section = ""
+    if attempt_history:
+        history_section = "\n## これまでの試行履歴（失敗の記録）\n"
+        for i, attempt in enumerate(attempt_history, 1):
+            history_section += f"""
+### 試行 {i}
+- **エラー**: 
+```
+{attempt.error[:500]}{"..." if len(attempt.error) > 500 else ""}
+```
+- **試したコード**:
+```python
+{attempt.code[:1000]}{"..." if len(attempt.code) > 1000 else ""}
+```
+---
+"""
+
+    return f"""\
+あなたはARKフレームワークのCoder SYLPHです。
+直前のコード実行でエラーが発生しました。提供されたスタックトレースおよび【これまでの試行履歴】を詳細に分析し、問題を修正した完全なコードを再生成してください。
+
+## ワークスペースの初期コンテキスト
+{context}
+
+## 直近の実行エラー情報
+- **Failure Reason**: {failure_reason}
+- **Stacktrace**:
+```
+{stacktrace}
+```
+
+## 現在のソースコード
+{current_source}
+{history_section}
+
+## ⚠️ 重要：セルフヒーリング制約
+これまでの失敗履歴を分析し、**既に試して失敗したアプローチを絶対に繰り返さないこと**。
+履歴から根本原因を推測し、必要であれば設計を見直し、全く新しいアプローチでコードを修正してください。
+
+## 出力フォーマット（厳守）
+FILE: <ファイルパス>
+```python
+<修正後のコード全体>
+```
+
+## 実装計画（再確認）
+ゴール: {goal}
+対象ファイル: {", ".join(target_files)}
+
+## 試行回数
+{retry}回目の修正試行（セルフヒーリング）
 """

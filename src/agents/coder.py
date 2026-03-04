@@ -133,7 +133,8 @@ class CoderAgent(BaseAgent):
         retry: int,
         failure_reason: str,
         stacktrace: str,
-        current_source: str
+        current_source: str,
+        attempt_history: list[ExecutionAttempt] | None = None
     ) -> CodePayload:
         """実行エラーを分析し、修正コードを生成します。"""
         log.info("[Coder] Remediating code (attempt %d) due to: %s", retry, failure_reason)
@@ -145,7 +146,8 @@ class CoderAgent(BaseAgent):
             workspace_path=self._workspace_path,
             failure_reason=failure_reason,
             stacktrace=stacktrace,
-            current_source=current_source
+            current_source=current_source,
+            attempt_history=attempt_history
         )
         
         response = self._call_llm(prompt)

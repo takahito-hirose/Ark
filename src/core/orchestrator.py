@@ -45,6 +45,7 @@ from src.core.models import (
     ReviewStatus,
     IssueSeverity,
     RunResult,
+    ExecutionAttempt,
 )
 from src.core.runner import PythonRunner
 from src.core.agents import build_remediation_prompt
@@ -220,6 +221,7 @@ class Orchestrator:
 
         last_review: ReviewPayload | None = None
         execution_feedback: str = ""
+        attempt_history: list[ExecutionAttempt] = []
 
         while self._state.retry_count < MAX_RETRIES:
             retry = self._state.retry_count
@@ -234,7 +236,8 @@ class Orchestrator:
                     retry,
                     failure_reason="Runtime Error",
                     stacktrace=execution_feedback,
-                    current_source=code_result.files[0].content if code_result and code_result.files else ""
+                    current_source=code_result.files[0].content if code_result and code_result.files else "",
+                    attempt_history=attempt_history
                 )
             elif last_review:
                 # レビューフィードバックに基づく修正依頼
@@ -261,6 +264,13 @@ class Orchestrator:
                 self._state.save()
                 
                 # エラー内容を保存して次のループで修正させる
+                if code_result and code_result.files:
+                    attempt_history.append(ExecutionAttempt(
+                        code=code_result.files[0].content,
+                        error=run_result.stderr,
+                        attempt_number=self._state.retry_count
+                    ))
+                
                 execution_feedback = run_result.stderr
                 log.warning(f"⚠️  {retry_msg}: Execution failed. Feeding back to Coder...")
                 
