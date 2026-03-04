@@ -28,7 +28,10 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final
+from typing import Final, Callable, Protocol
+
+class StatusCallback(Protocol):
+    def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
 
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
 from src.core.config import ConfigLoader
@@ -96,6 +99,10 @@ class ARKState:
         self.goal:       str   = ""
         self.retry_count: int  = 0
         self.history:    list[dict] = []
+        self._on_status_change: StatusCallback | None = None
+
+    def set_callback(self, callback: StatusCallback | None) -> None:
+        self._on_status_change = callback
 
     # ---- persistence -------------------------------------------------------
 
@@ -130,11 +137,15 @@ class ARKState:
             "detail":    detail,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
+        if self._on_status_change:
+            self._on_status_change(phase, status, self.retry_count, detail)
 
     def transition(self, phase: Phase) -> None:
         log.info("State transition: %s → %s", self.phase.value, phase.value)
         self.phase = phase
         self.save()
+        if self._on_status_change:
+            self._on_status_change(phase, "TRANSITION", self.retry_count, f"Moving to {phase.value}")
 
 
 # ---------------------------------------------------------------------------
@@ -157,10 +168,12 @@ class Orchestrator:
                         (FAIL: retry, max=3)
     """
 
-    def __init__(self, config_path: Path | None = None) -> None:
+    def __init__(self, config_path: Path | None = None, on_status_change: StatusCallback | None = None) -> None:
         self._cfg       = ConfigLoader.load(config_path)
         self._workspace = Path(self._cfg.workspace_path)
         self._state     = ARKState(self._workspace)
+        if on_status_change:
+            self._state.set_callback(on_status_change)
 
         # エージェントにプロバイダーを依存性注入（ファクトリー経由）
         self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._workspace)
