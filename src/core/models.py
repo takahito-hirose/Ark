@@ -44,6 +44,14 @@ class RunResult:
         return self.exit_code == 0 and not self.timed_out
 
 
+@dataclass
+class ExecutionAttempt:
+    """A record of a failed execution attempt in the self-healing loop."""
+    code: str
+    error: str
+    attempt_number: int
+
+
 class ReviewStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
