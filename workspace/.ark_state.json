@@ -1,27 +1,39 @@
 {
-  "task_id": "c05f676c-f237-4bf5-9766-f558ae3b225e",
+  "task_id": "5fa527e8-9a3c-49fe-b9bd-08ba513edac7",
   "phase": "COMMITTING",
   "goal": "テスト用: DONEフェーズ確認",
-  "retry_count": 0,
+  "retry_count": 1,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
       "detail": "target_files=['workspace/main.py']",
-      "timestamp": "2026-03-05T08:12:30.838508+00:00"
+      "timestamp": "2026-03-05T08:12:25.762272+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
       "detail": "files=['workspace/main.py']",
-      "timestamp": "2026-03-05T08:12:49.964878+00:00"
+      "timestamp": "2026-03-05T08:12:36.932706+00:00"
+    },
+    {
+      "phase": "REVIEWING",
+      "status": "FAIL",
+      "detail": "retry=1 — 型ヒントが付与されている、docstringが存在し、受け入れ基準を満たしている。",
+      "timestamp": "2026-03-05T08:12:42.705994+00:00"
+    },
+    {
+      "phase": "CODING",
+      "status": "OK",
+      "detail": "files=['workspace/main.py']",
+      "timestamp": "2026-03-05T08:12:57.062348+00:00"
     },
     {
       "phase": "REVIEWING",
       "status": "PASS",
-      "detail": "型ヒントとdocstringが完全に付与されている且つ受け入れ基準を満たしている。",
-      "timestamp": "2026-03-05T08:13:00.143915+00:00"
+      "detail": "型ヒント、docstring が存在し、受け入れ基準を満たしている。",
+      "timestamp": "2026-03-05T08:13:11.738947+00:00"
     }
   ],
-  "updated_at": "2026-03-05T08:13:00.145294+00:00"
+  "updated_at": "2026-03-05T08:13:11.740158+00:00"
 }
