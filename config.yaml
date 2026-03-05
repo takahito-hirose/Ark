@@ -1,52 +1,35 @@
 # ARK (Autonomous Resilient Kernel) — Runtime Configuration
 # ----------------------------------------------------------
-# Edit this file to point ARK at your local LLM setup.
-# All values can be overridden with environment variables
-# prefixed with ARK_ (e.g. ARK_MODEL_NAME=llama3.1).
 
-# Name of the local model served by Ollama (or compatible runner).
-# Architect-grade: DeepSeek-V3, Llama-3.1-70B
-# Coder-grade:     Qwen2.5-Coder, Gemma-2-9B
-# Reviewer-grade:  Llama-3.2-3B, Phi-4
-model_name: "deepseek-coder-v2"
+# グローバルなデフォルト（もし個別に指定がない時に使われるわ）
+model_name: "qwen2.5-coder:7b"
 
-# Base URL of the local LLM API endpoint.
+# Ollama のエンドポイント（Mac の Ollama ならこれで OK ！）
 api_endpoint: "http://localhost:11434"
 
-# Absolute (or relative) path to the AI sandbox workspace.
-# Relative paths are resolved from the project root.
+# ワークスペース
 workspace_path: "workspace"
 
 # ---------------------------------------------------------------------------
 # Per-agent provider settings (Strategy pattern)
 # ---------------------------------------------------------------------------
-# Available providers: "ollama" | "gemini" | "mock"
-# Override via environment variables: ARK_ARCHITECT_PROVIDER etc.
-#
-# Use cases:
-#   - 職場（オフライン）: architect_provider: "mock"
-#   - 自宅（Ollama稼働）:   architect_provider: "ollama"
-#   - 本番環境:             architect_provider: "gemini"
-# architect_provider: "ollama"
-# coder_provider: "ollama"
-#reviewer_provider: "ollama"
-
-architect_provider: "gemini"
-coder_provider: "gemini"
-reviewer_provider: "gemini"
+# ここを全部 "ollama" にするのが「自宅モード」の絶対条件よ！💋
+architect_provider: "ollama"
+coder_provider: "ollama"
+reviewer_provider: "ollama"
 
 # ---------------------------------------------------------------------------
-# Google Gemini settings (used when *_provider is set to "gemini")
+# Role-specific Model Selection for Ollama
 # ---------------------------------------------------------------------------
-# セキュリティのため、APIキーは環境変数 ARK_GEMINI_API_KEY で指定推奨
+# ジェニーの MacBook Air に入ってる「最強パーティ」をセットするわよ！
+architect_model: "gemma3:4b"
+coder_model: "qwen2.5-coder:7b"
+reviewer_model: "llama3.2:3b"
+
+# ---------------------------------------------------------------------------
+# Google Gemini settings (会社に戻った時はここを gemini に戻してね)
+# ---------------------------------------------------------------------------
 gemini_api_key: ""
-
-# ロールごとのモデル選択
-# Architect: 設計・推論に強いモデル
-architect_model: "gemini-2.0-flash"
-# Coder/Reviewer: 高速・軽量なモデル
-coder_model: "gemini-2.0-flash"
-reviewer_model: "gemini-2.0-flash"
-
-# デフォルト（互換性用）
-gemini_model_name: "gemini-2.0-flash"
+architect_model_gemini: "gemini-2.0-flash"
+coder_model_gemini: "gemini-2.0-flash"
+reviewer_model_gemini: "gemini-2.0-flash"
