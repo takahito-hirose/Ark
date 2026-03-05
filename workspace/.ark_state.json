@@ -1,39 +1,39 @@
 {
-  "task_id": "034b3219-5dfa-4ffa-9b0c-e20d67236ec3",
+  "task_id": "7f61d96c-24c2-4b7f-97a0-424da1673862",
   "phase": "COMMITTING",
-  "goal": "テスト用: Hello World Pythonスクリプトを生成せよ",
-  "retry_count": 1,
+  "goal": "テスト用: 状態ファイル生成確認",
+  "retry_count": 3,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
-      "detail": "target_files=['workspace/hello.py']",
-      "timestamp": "2026-03-05T06:11:20.973109+00:00"
+      "detail": "target_files=['tests/test_main.py']",
+      "timestamp": "2026-03-05T06:11:44.038958+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
-      "detail": "files=['workspace/hello.py']",
-      "timestamp": "2026-03-05T06:11:30.077981+00:00"
+      "detail": "files=['tests/test_main.py']",
+      "timestamp": "2026-03-05T06:11:50.288118+00:00"
     },
     {
-      "phase": "REVIEWING",
+      "phase": "CODING",
       "status": "FAIL",
-      "detail": "retry=1 — 型ヒントが完全に付与されている、docstring が存在し、受け入れ基準を満たしています。",
-      "timestamp": "2026-03-05T06:11:32.216146+00:00"
+      "detail": "[🔄 SELF-HEALING] Attempt 1/3 — Error: F\n======================================================================\nFAIL: test_main (__main__.T",
+      "timestamp": "2026-03-05T06:11:50.366419+00:00"
     },
     {
       "phase": "CODING",
-      "status": "OK",
-      "detail": "files=['workspace/hello.py']",
-      "timestamp": "2026-03-05T06:11:35.904256+00:00"
+      "status": "FAIL",
+      "detail": "[🔄 SELF-HEALING] Attempt 2/3 — Error: F\n======================================================================\nFAIL: test_main (__main__.T",
+      "timestamp": "2026-03-05T06:12:04.317538+00:00"
     },
     {
-      "phase": "REVIEWING",
-      "status": "PASS",
-      "detail": "型ヒント、docstring、受け入れ基準を満たしているコード。",
-      "timestamp": "2026-03-05T06:11:37.510977+00:00"
+      "phase": "CODING",
+      "status": "FAIL",
+      "detail": "[🔄 SELF-HEALING] Attempt 3/3 — Error: F\n======================================================================\nFAIL: test_main (__main__.T",
+      "timestamp": "2026-03-05T06:12:18.452872+00:00"
     }
   ],
-  "updated_at": "2026-03-05T06:11:37.512366+00:00"
+  "updated_at": "2026-03-05T06:12:18.453198+00:00"
 }
