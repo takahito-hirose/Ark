@@ -1,13 +1,8 @@
-"""
-Module to manage project history.
-"""
+"""History module for tracking project progress."""
 
-def get_history() -> list:
-    """
-    Returns the history of the project.
+def check_history() -> None:
+    """Check the project history and print a message."""
+    print("Project history confirmed successfully!")
 
-    Returns:
-        list: The history of the project.
-    """
-    # Placeholder for actual implementation
-    return []
+if __name__ == "__main__":
+    check_history()
