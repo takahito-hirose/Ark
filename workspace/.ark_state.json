@@ -1,6 +1,6 @@
 {
   "task_id": "0ec0f404-2d75-4b3b-90ef-a3013ad677f8",
-  "phase": "COMMITTING",
+  "phase": "DONE",
   "goal": "hallo",
   "retry_count": 0,
   "history": [
@@ -21,7 +21,13 @@
       "status": "PASS",
       "detail": "型ヒントとdocstringが存在し、受け入れ基準を満たしていますが、一部のメソッド名が不正確です。",
       "timestamp": "2026-03-04T16:37:42.188686+00:00"
+    },
+    {
+      "phase": "COMMITTING",
+      "status": "OK",
+      "detail": "committed=['/Users/taks/Ark/workspace/output_0ec0f404.py']",
+      "timestamp": "2026-03-04T16:37:47.830025+00:00"
     }
   ],
-  "updated_at": "2026-03-04T16:37:42.189640+00:00"
+  "updated_at": "2026-03-04T16:37:47.830717+00:00"
 }
