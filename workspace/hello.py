@@ -1,11 +1,10 @@
-def greet(name: str) -> None:
+def main() -> None:
     """
-    Greets the specified name and prints a greeting message.
+    The entry point of the application.
     
-    Args:
-        name (str): The name to greet.
+    Prints 'hello' to the console.
     """
-    print(f"Hello, {name}!")
+    print("hello")
 
 if __name__ == "__main__":
-    greet("World")
+    main()
