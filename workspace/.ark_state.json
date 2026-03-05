@@ -1,27 +1,39 @@
 {
-  "task_id": "fb96f662-615d-42d8-b347-2c167dec0f62",
+  "task_id": "892ab6d2-4192-48d2-9fad-43f869a7ab20",
   "phase": "COMMITTING",
-  "goal": "テスト用: DONEフェーズ確認",
-  "retry_count": 0,
+  "goal": "テスト用: Hello World Pythonスクリプトを生成せよ",
+  "retry_count": 1,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
-      "detail": "target_files=['test/main_test.py']",
-      "timestamp": "2026-03-05T06:57:24.069084+00:00"
+      "detail": "target_files=['workspace/main.py']",
+      "timestamp": "2026-03-05T08:04:22.113249+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
-      "detail": "files=['test/main_test.py', 'main.py']",
-      "timestamp": "2026-03-05T06:57:36.843569+00:00"
+      "detail": "files=['workspace/main.py']",
+      "timestamp": "2026-03-05T08:05:22.124668+00:00"
+    },
+    {
+      "phase": "REVIEWING",
+      "status": "FAIL",
+      "detail": "retry=1 — 型ヒントが不足しています。修正してください。",
+      "timestamp": "2026-03-05T08:06:22.172877+00:00"
+    },
+    {
+      "phase": "CODING",
+      "status": "OK",
+      "detail": "files=['workspace/main.py']",
+      "timestamp": "2026-03-05T08:07:22.190411+00:00"
     },
     {
       "phase": "REVIEWING",
       "status": "PASS",
-      "detail": "コードは基本的に正しく構造化されており、型ヒントとドキュメントストリングがすべて存在しています。",
-      "timestamp": "2026-03-05T06:57:40.601567+00:00"
+      "detail": "Review completed.",
+      "timestamp": "2026-03-05T08:08:22.247931+00:00"
     }
   ],
-  "updated_at": "2026-03-05T06:57:40.602957+00:00"
+  "updated_at": "2026-03-05T08:08:22.251852+00:00"
 }
