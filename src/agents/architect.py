@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path  # 👈 地味に抜けてたから足しておいたわ💋
 from typing import TYPE_CHECKING
 
 from src.agents.base_agent import BaseAgent
@@ -43,6 +44,7 @@ ACCEPTANCE: <カンマ区切りの受け入れ基準リスト>
 - ファイルパスは workspace/ からの相対パスで記述
 - Python 3.11+ 対応コードを前提とする
 - 型ヒントを必須とする
+- 外部ライブラリが必要な場合は必ず TARGET_FILES に requirements.txt を含めること
 
 ## ゴール
 {goal}
@@ -72,24 +74,21 @@ class ArchitectAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def plan(self, goal: str, task_id: str) -> PlanPayload:
-        """ゴールを分析し :class:`~src.core.models.PlanPayload` を生成する。
-
-        Parameters
-        ----------
-        goal:
-            ユーザーが指定した実装ゴール（自然言語）。
-        task_id:
-            現在のタスクID（ログ・ファイル名生成に使用）。
-
-        Returns
-        -------
-        PlanPayload
-            生成された実装計画。LLMパース失敗時はデフォルト値を使用。
-        """
+        """ゴールを分析し :class:`~src.core.models.PlanPayload` を生成する。"""
         log.info("[Architect] Analysing goal: %r", goal[:60])
-        # src/core/agents.py のロジックを使用してプロンプトを構築（初期コンテキスト取得を含む）
-        prompt = build_architect_prompt(goal, self._workspace_path)
+        
+        # 👈 ここがキモ！ ゴールに直接「鉄の掟」を強制注入！
+        enhanced_goal = (
+            f"{goal}\n\n"
+            "【必須ルール】\n"
+            "外部ライブラリ（requestsなど）を使用する場合は、必ず TARGET_FILES のリストに 'requirements.txt' を含めてください。"
+        )
+
+        # src/core/agents.py のロジックを使用してプロンプトを構築
+        prompt = build_architect_prompt(enhanced_goal, self._workspace_path)
         response = self._call_llm(prompt)
+        
+        # payload生成時には、ログ等が汚れないように元の goal を渡すわ
         return self._parse_response(response, goal=goal, task_id=task_id)
 
     # ------------------------------------------------------------------

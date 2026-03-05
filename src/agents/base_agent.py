@@ -16,6 +16,7 @@ import logging
 from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING
+import os
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
@@ -35,12 +36,15 @@ class BaseAgent(ABC):
         エージェントのロール名。ログ出力に使用する（例: ``"architect"``）。
     """
 
-    def __init__(self, provider: "BaseProvider", role: str = "agent", workspace_path: Path | None = None) -> None:
+    def __init__(self, provider: "BaseProvider", role: str = "agent", workspace_path: Path | str | None = None) -> None:
         self._provider = provider
         self._role     = role
-        self._workspace_path = workspace_path
-        log.debug("[%s] initialized with provider: %r, workspace: %s", self._role, provider, workspace_path)
-
+        
+        # 👇 ここが「E」の嵐を止める魔法の1行！
+        # None が来たら Path(".") （カレントディレクトリ）をデフォルトにするわ
+        self._workspace_path = Path(workspace_path) if workspace_path is not None else Path(".")
+        
+        log.debug("[%s] initialized with provider: %r, workspace: %s", self._role, provider, self._workspace_path)
     # ------------------------------------------------------------------
     # 共通LLM呼び出しラッパー
     # ------------------------------------------------------------------

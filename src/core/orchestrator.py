@@ -29,6 +29,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final, Callable, Protocol
+from src.tools.terminal import TerminalOracle
 
 class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
@@ -160,30 +161,48 @@ class ARKState:
 class Orchestrator:
     """
     Main autonomous loop controller.
-
-    Phases
-    ------
-    IDLE → PLANNING → CODING → REVIEWING → COMMITTING → DONE
-                        ↑______________|
-                        (FAIL: retry, max=3)
     """
 
-    def __init__(self, config_path: Path | None = None, on_status_change: StatusCallback | None = None) -> None:
-        self._cfg       = ConfigLoader.load(config_path)
-        self._workspace = Path(self._cfg.workspace_path)
-        self._state     = ARKState(self._workspace)
+    def __init__(
+        self, 
+        config_path: Path | None = None, 
+        workspace_path: str | Path | None = None, # 👈 引数を追加！
+        on_status_change: StatusCallback | None = None
+    ) -> None:
+        # 1. コンフィグのロード
+        self._cfg = ConfigLoader.load(config_path)
+        
+        # 2. ワークスペースの決定（引数優先 > 設定ファイル > カレントディレクトリ）
+        ws_input = workspace_path or self._cfg.workspace_path or "."
+        self._workspace = Path(ws_input).resolve()
+        
+        # 3. 状態管理の初期化（決定したワークスペースを使用）
+        self._state = ARKState(self._workspace)
         if on_status_change:
             self._state.set_callback(on_status_change)
 
-        # エージェントにプロバイダーを依存性注入（ファクトリー経由）
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._workspace)
-        self._coder     = CoderAgent(get_provider("coder",     self._cfg), workspace_path=self._workspace)
-        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg), workspace_path=self._workspace)
-        self._runner    = PythonRunner(timeout=30)
-        self._git       = GitTool(self._workspace)
+        # 4. 各エージェントの初期化（新しいワークスペースを共有！）
+        self._architect = ArchitectAgent(
+            get_provider("architect", self._cfg), 
+            workspace_path=self._workspace
+        )
+        self._coder = CoderAgent(
+            get_provider("coder", self._cfg), 
+            workspace_path=self._workspace
+        )
+        self._reviewer = ReviewerAgent(
+            get_provider("reviewer", self._cfg), 
+            workspace_path=self._workspace
+        )
+        
+        # 5. ツールの初期化
+        self._runner = PythonRunner(timeout=30)
+        self._terminal = TerminalOracle(workspace_path=self._workspace)
+        self._git = GitTool(self._workspace)
 
         log.info(
-            "Orchestrator initialized — providers: architect=%r coder=%r reviewer=%r",
+            "Orchestrator initialized — workspace: %s, providers: architect=%r coder=%r reviewer=%r",
+            self._workspace,
             self._cfg.architect_provider,
             self._cfg.coder_provider,
             self._cfg.reviewer_provider,
@@ -372,28 +391,36 @@ class Orchestrator:
         return review
 
     def _phase_run(self, code: CodePayload) -> RunResult:
-        log.info("[RUN]  Executing generated code for verification …")
-        # 最初のファイルをメインスクリプトとして実行
-        if not code.files:
-            return RunResult(exit_code=-1, stdout="", stderr="No files generated", duration=0)
+        log.info("[RUN]  Terminal Oracle executing code for verification …")
         
-        main_file = self._workspace / code.files[0].path
-        # まだコミットされていないため、一時的に書き出すか、
-        # 既存のコミットロジックを流用する。
-        # ここでは検証用に一時的に書き出す（本番コミットは後ほど）。
-        temp_path = self._workspace / f"_verify_{uuid.uuid4().hex[:8]}.py"
-        try:
-            temp_path.write_text(code.files[0].content, encoding="utf-8")
-            result = self._runner.run_file(temp_path)
-            if result.success:
-                log.info("✅  Execution SUCCESS")
-            else:
-                log.error("❌  Execution FAILED (exit=%d)", result.exit_code)
-            return result
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        # 👈 ステップ0: 実行前に「今生成されたばかりのコード」を一時的に保存するわよ！
+        # これをやらないと、さっきみたいに「過去の亡霊」が動いちゃうの💋
+        for fc in code.files:
+            safe_path = self._workspace / Path(fc.path).name
+            safe_path.write_text(fc.content, encoding="utf-8")
+        
+        # 👈 ステップ1: もし新しい requirements.txt があれば、実行前にインストール！
+        # これで検証段階でも ModuleNotFoundError が出なくなるわ✨
+        if any(f.path.endswith("requirements.txt") for f in code.files):
+            log.info("[RUN] 新しい依存関係を検知！検証前にインストールしちゃうわよ💋")
+            self._terminal.execute_command("pip install -r requirements.txt")
 
+        # ステップ2: Pythonファイルを探して実行
+        main_file = next((f.path for f in code.files if f.path.endswith(".py")), None)
+        if not main_file:
+            return RunResult(exit_code=-1, stdout="", stderr="No python file found", duration=0)
+        
+        script_name = Path(main_file).name
+        result = self._terminal.execute_command(f"python {script_name}")
+        
+        if result.success:
+            log.info("✅  Execution SUCCESS")
+            print(f"\n--- 🚀 ARK EXECUTION OUTPUT ---\n{result.stdout}\n------------------------------\n")
+        else:
+            log.error("❌  Execution FAILED (exit=%d)", result.exit_code)
+            
+        return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+    
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
         """Write all generated files into workspace/ and perform Git operations."""
         # 1. Cleanup temporary verification files
@@ -429,6 +456,19 @@ class Orchestrator:
                 safe_path.write_text(fc.content, encoding="utf-8")
                 committed.append(safe_path)
                 log.info("[COMMIT] Written %s (%d bytes)", safe_path, len(fc.content))
+        # ── 2.5 依存関係のセットアップ (New! 🚀) ──────────────────────
+        # 書き出されたファイルの中に requirements.txt があるかチェック
+        req_path = self._workspace / "requirements.txt"
+        if req_path.exists():
+            log.info("[SETUP] requirements.txt を発見！依存ライブラリをインストールするわ💋")
+            # さっき作った Terminal Oracle に丸投げよ！
+            install_res = self._terminal.execute_command("pip install -r requirements.txt")
+            
+            if install_res.success:
+                log.info("✅ 依存ライブラリの準備完了！完璧よジェニー！")
+            else:
+                log.warning("⚠️ インストールで少し手こずったみたい。エラー：\n%s", install_res.stderr)
+        # ────────────────────────────────────────────────────────────
 
         # 3. Git Operations
         try:
