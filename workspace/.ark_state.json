@@ -1,39 +1,27 @@
 {
-  "task_id": "c5e570f4-6a3d-4917-9049-cc8cf86808f5",
+  "task_id": "fb96f662-615d-42d8-b347-2c167dec0f62",
   "phase": "COMMITTING",
-  "goal": "テスト用: ヒストリー確認",
-  "retry_count": 1,
+  "goal": "テスト用: DONEフェーズ確認",
+  "retry_count": 0,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
-      "detail": "target_files=['history.py']",
-      "timestamp": "2026-03-05T06:56:47.397917+00:00"
+      "detail": "target_files=['test/main_test.py']",
+      "timestamp": "2026-03-05T06:57:24.069084+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
-      "detail": "files=['history.py']",
-      "timestamp": "2026-03-05T06:57:02.619164+00:00"
-    },
-    {
-      "phase": "REVIEWING",
-      "status": "FAIL",
-      "detail": "retry=1 — コードの構成と機能は適切です。型ヒントとドキュメントが充実しています。",
-      "timestamp": "2026-03-05T06:57:04.718829+00:00"
-    },
-    {
-      "phase": "CODING",
-      "status": "OK",
-      "detail": "files=['history.py']",
-      "timestamp": "2026-03-05T06:57:08.598041+00:00"
+      "detail": "files=['test/main_test.py', 'main.py']",
+      "timestamp": "2026-03-05T06:57:36.843569+00:00"
     },
     {
       "phase": "REVIEWING",
       "status": "PASS",
-      "detail": "型ヒントが完全に付与されている、docstring が存在し、受け入れ基準を満たしている。",
-      "timestamp": "2026-03-05T06:57:10.246757+00:00"
+      "detail": "コードは基本的に正しく構造化されており、型ヒントとドキュメントストリングがすべて存在しています。",
+      "timestamp": "2026-03-05T06:57:40.601567+00:00"
     }
   ],
-  "updated_at": "2026-03-05T06:57:10.247911+00:00"
+  "updated_at": "2026-03-05T06:57:40.602957+00:00"
 }

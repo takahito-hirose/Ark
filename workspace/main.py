@@ -1,3 +1,6 @@
+import io
+import sys
+
 def main() -> None:
     """
     The entry point of the application.
