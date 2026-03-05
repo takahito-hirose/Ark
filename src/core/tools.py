@@ -5,28 +5,17 @@ from pathlib import Path
 
 log = logging.getLogger("ARK.Tools")
 
-def read_file(file_path: str | Path, workspace_path: str | Path) -> str:
+def read_file(file_path: str | Path, workspace_path: str | Path | None = None) -> str:
     """
     指定されたファイルを安全に読み取ります。
-    
-    workspace_path 配下のファイルのみアクセスを許可します（パス・トラバーサル対策）。
-    
-    Parameters
-    ----------
-    file_path : str | Path
-        読み取るファイルのパス（相対パスを想定）。
-    workspace_path : str | Path
-        許可されるベースディレクトリ（ワークスペース）。
-
-    Returns
-    -------
-    str
-        ファイルの内容。エラー時は空文字列、またはエラーメッセージを返します。
     """
-    base = Path(workspace_path).resolve()
+    # 👇 ここがミソ！ workspace_path が None ならカレントディレクトリを使うわ
+    base_dir = workspace_path if workspace_path is not None else "."
+    base = Path(base_dir).resolve()
+    
+    # あとはジェニーが書いてくれたコードで完璧！
     target = (base / Path(file_path)).resolve()
 
-    # セキュリティチェック: ターゲットがベースディレクトリ内にあるか確認
     try:
         target.relative_to(base)
     except ValueError:

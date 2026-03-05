@@ -1,3 +1,4 @@
+
 """
 ARK (Autonomous Resilient Kernel) — LLM Provider Definitions
 =============================================================
@@ -122,57 +123,40 @@ class OllamaProvider(BaseProvider):
 # ---------------------------------------------------------------------------
 # MockProvider
 # ---------------------------------------------------------------------------
-
 class MockProvider(BaseProvider):
     """接続不要のダミープロバイダー。
     入力プロンプトのキーワードに応じて、適切な構造化データ(JSON/Markdown)を返す。
     """
 
     def __init__(self, response_template: Optional[str] = None) -> None:
-        # 互換性のために残すが、基本は generate 内で分岐させる
-        self._template = response_template 
+        # 👈 アンダースコアなしの self.template にして generate と合わせるわよ
+        self.template = response_template 
         log.debug("MockProvider initialized (Context-Aware Mode)")
 
     def generate(self, prompt: str) -> str:
-        """プロンプトの内容を読み取り、フェーズに応じたダミー回答を生成する。"""
-        log.info("MockProvider.generate() called — generating contextual response")
+        display_prompt = prompt if len(prompt) <= 100 else prompt[:100] + "..."
+        
+        if self.template:
+            return self.template.replace("{prompt}", display_prompt)
 
-        if self._template:
-            return self._template.format(prompt=prompt)
-
-        # 1. PLANNING (Architect) への回答
-        if "PLANNING" in prompt or "PlanPayload" in prompt:
-            return (
-                '{"reasoning": "Mock planning executed.", '
-                '"tasks": [{"task_id": "T1", "description": "Implement hello logic", "estimated_effort": "1h"}]}'
-            )
-
-        # 2. CODING (Coder) への回答
-        if "CODING" in prompt or "CodePayload" in prompt:
-            # 抽出ロジックを通すために、必ずバッククォートのブロックを含めるのが「本質」
-            return (
-                "I have written the code as requested.\n\n"
-                "```python\n"
-                "def hello():\n"
-                "    print('Hello from ARK Modular Mock!')\n"
-                "```"
-            )
-
-        # 3. REVIEWING (Reviewer) への回答
-        if "REVIEWING" in prompt or "ReviewPayload" in prompt:
-            # テストコードの期待値に合わせるため、retry回数で挙動を変える「焦らしプレイ」
-            # プロンプトの中に "retry: 0" または "retry=0" が含まれているかチェック
-            if "retry: 0" in prompt or "retry=0" in prompt:
-                return (
-                    '{"status": "FAIL", "score": 0.5, "summary": "Needs improvement", '
-                    '"issues": ["Code is too simple", "Missing docstrings"]}'
-                )
-            # retryが1以上のときは PASS を返す
+        # 👈 ここがポイント！ プロンプトが JSON を求めてそうなら、
+        # もしくは Reviewer が呼んでそうなら、一律で JSON を返すようにするわ。
+        if "REVIEW" in prompt.upper() or "STATUS" in prompt.lower():
+            # retry が 0 (初回) の時だけあえて失敗させる（テストの期待値）
+            if "RETRY: 0" in prompt.upper() or "RETRY=0" in prompt.upper():
+                return '{"status": "FAIL", "score": 0.4, "summary": "Found issues", "issues": ["Lack of docstrings"]}'
+            # それ以外は PASS
             return '{"status": "PASS", "score": 1.0, "summary": "Perfect!", "issues": []}'
 
-        # 4. デフォルト（どれにも当てはまらない場合）
-        return f"[MOCK RESPONSE] Default response for: {prompt[:50]}"
+        # PLANNING 用の JSON
+        if "PLAN" in prompt.upper():
+            return '{"reasoning": "Mock plan", "target_files": ["hello.py"], "tasks": [], "acceptance_criteria": [], "constraints": []}'
 
+        # CODING 用の Markdown
+        if "CODE" in prompt.upper():
+            return "```python\nprint('hello')\n```"
+
+        return f"[MOCK RESPONSE] Default for: {display_prompt}"
 
 # ---------------------------------------------------------------------------
 # GeminiProvider (雛形)
@@ -237,4 +221,4 @@ class GeminiProvider(BaseProvider):
             raise RuntimeError(f"GeminiProviderエラー: {exc}") from exc
 
     def __repr__(self) -> str:
-        return f"<GeminiProvider model={self._model_name!r} mode='PAID_SPEED'>"
+        return f"<GeminiProvider model={self._model_name!r} mode=\'PAID_SPEED\'>"

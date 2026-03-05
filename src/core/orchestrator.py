@@ -160,30 +160,47 @@ class ARKState:
 class Orchestrator:
     """
     Main autonomous loop controller.
-
-    Phases
-    ------
-    IDLE → PLANNING → CODING → REVIEWING → COMMITTING → DONE
-                        ↑______________|
-                        (FAIL: retry, max=3)
     """
 
-    def __init__(self, config_path: Path | None = None, on_status_change: StatusCallback | None = None) -> None:
-        self._cfg       = ConfigLoader.load(config_path)
-        self._workspace = Path(self._cfg.workspace_path)
-        self._state     = ARKState(self._workspace)
+    def __init__(
+        self, 
+        config_path: Path | None = None, 
+        workspace_path: str | Path | None = None, # 👈 引数を追加！
+        on_status_change: StatusCallback | None = None
+    ) -> None:
+        # 1. コンフィグのロード
+        self._cfg = ConfigLoader.load(config_path)
+        
+        # 2. ワークスペースの決定（引数優先 > 設定ファイル > カレントディレクトリ）
+        ws_input = workspace_path or self._cfg.workspace_path or "."
+        self._workspace = Path(ws_input).resolve()
+        
+        # 3. 状態管理の初期化（決定したワークスペースを使用）
+        self._state = ARKState(self._workspace)
         if on_status_change:
             self._state.set_callback(on_status_change)
 
-        # エージェントにプロバイダーを依存性注入（ファクトリー経由）
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._workspace)
-        self._coder     = CoderAgent(get_provider("coder",     self._cfg), workspace_path=self._workspace)
-        self._reviewer  = ReviewerAgent(get_provider("reviewer",  self._cfg), workspace_path=self._workspace)
-        self._runner    = PythonRunner(timeout=30)
-        self._git       = GitTool(self._workspace)
+        # 4. 各エージェントの初期化（新しいワークスペースを共有！）
+        self._architect = ArchitectAgent(
+            get_provider("architect", self._cfg), 
+            workspace_path=self._workspace
+        )
+        self._coder = CoderAgent(
+            get_provider("coder", self._cfg), 
+            workspace_path=self._workspace
+        )
+        self._reviewer = ReviewerAgent(
+            get_provider("reviewer", self._cfg), 
+            workspace_path=self._workspace
+        )
+        
+        # 5. ツールの初期化
+        self._runner = PythonRunner(timeout=30)
+        self._git = GitTool(self._workspace)
 
         log.info(
-            "Orchestrator initialized — providers: architect=%r coder=%r reviewer=%r",
+            "Orchestrator initialized — workspace: %s, providers: architect=%r coder=%r reviewer=%r",
+            self._workspace,
             self._cfg.architect_provider,
             self._cfg.coder_provider,
             self._cfg.reviewer_provider,
