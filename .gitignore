@@ -21,7 +21,7 @@ wheels/
 *.egg
 
 # ARK Specific (キャッシュと作業場をガード！)
-workspace/
+
 .ark_state.json
 
 # OS files
