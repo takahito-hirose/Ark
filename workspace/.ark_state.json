@@ -1,39 +1,8 @@
 {
-  "task_id": "20e15977-c170-48f4-9299-c191d56f595a",
-  "phase": "REVIEWING",
-  "goal": "テスト用: ヒストリー確認",
-  "retry_count": 2,
-  "history": [
-    {
-      "phase": "PLANNING",
-      "status": "OK",
-      "detail": "target_files=['workspace/history.md']",
-      "timestamp": "2026-03-05T08:10:38.659725+00:00"
-    },
-    {
-      "phase": "CODING",
-      "status": "OK",
-      "detail": "files=['workspace/history.md']",
-      "timestamp": "2026-03-05T08:10:51.493970+00:00"
-    },
-    {
-      "phase": "REVIEWING",
-      "status": "FAIL",
-      "detail": "retry=1 — コードは全体的に良好で、型ヒントが付与されている、docstring が存在し、受け入れ基準を満たしています。",
-      "timestamp": "2026-03-05T08:10:58.848169+00:00"
-    },
-    {
-      "phase": "CODING",
-      "status": "OK",
-      "detail": "files=['workspace/history.md', 'main.py']",
-      "timestamp": "2026-03-05T08:11:14.704877+00:00"
-    },
-    {
-      "phase": "CODING",
-      "status": "FAIL",
-      "detail": "[🔄 SELF-HEALING] Attempt 2/3 — Error:   File \"/Users/taks/Ark/workspace/_verify_fe387369.py\", line 4\n    - Created the initial `README.md`",
-      "timestamp": "2026-03-05T08:11:14.735111+00:00"
-    }
-  ],
-  "updated_at": "2026-03-05T08:12:14.788888+00:00"
+  "task_id": "5fa527e8-9a3c-49fe-b9bd-08ba513edac7",
+  "phase": "PLANNING",
+  "goal": "テスト用: DONEフェーズ確認",
+  "retry_count": 0,
+  "history": [],
+  "updated_at": "2026-03-05T08:12:19.535243+00:00"
 }
