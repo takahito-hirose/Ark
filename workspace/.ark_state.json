@@ -1,27 +1,39 @@
 {
-  "task_id": "54a5ca04-2a51-40c4-9d92-d9263cab7fbf",
+  "task_id": "a7af2a6f-af76-4463-bec5-18d834cc1085",
   "phase": "COMMITTING",
-  "goal": "テスト用: 状態ファイル生成確認",
-  "retry_count": 0,
+  "goal": "テスト用: ヒストリー確認",
+  "retry_count": 1,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
-      "detail": "target_files=['workspace/README.md', 'workspace/main.py']",
-      "timestamp": "2026-03-05T09:04:56.434701+00:00"
+      "detail": "target_files=['workspace/main.py']",
+      "timestamp": "2026-03-05T09:05:15.845119+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
-      "detail": "files=['workspace/README.md', 'workspace/main.py']",
-      "timestamp": "2026-03-05T09:05:04.431926+00:00"
+      "detail": "files=['workspace/main.py']",
+      "timestamp": "2026-03-05T09:05:23.079432+00:00"
+    },
+    {
+      "phase": "REVIEWING",
+      "status": "FAIL",
+      "detail": "retry=1 — 型ヒントが完全に付与されている、docstring が存在する、受け入れ基準を満たしている。",
+      "timestamp": "2026-03-05T09:05:24.712914+00:00"
+    },
+    {
+      "phase": "CODING",
+      "status": "OK",
+      "detail": "files=['workspace/main.py']",
+      "timestamp": "2026-03-05T09:05:27.303672+00:00"
     },
     {
       "phase": "REVIEWING",
       "status": "PASS",
-      "detail": "型ヒント、docstring が存在し、受け入れ基準を満たしているが、構文エラーがないか確認できない。",
-      "timestamp": "2026-03-05T09:05:06.604722+00:00"
+      "detail": "型ヒントが完全に付与され、docstring が存在し、受け入れ基準を満たしているが、メイン関数 `main` は省略されている。",
+      "timestamp": "2026-03-05T09:05:30.374329+00:00"
     }
   ],
-  "updated_at": "2026-03-05T09:05:06.605954+00:00"
+  "updated_at": "2026-03-05T09:05:30.375438+00:00"
 }
