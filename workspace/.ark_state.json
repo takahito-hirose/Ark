@@ -1,27 +1,33 @@
 {
-  "task_id": "7194ff34-c879-42ad-849b-1ebb5967c7ca",
+  "task_id": "e4f99876-ba40-4830-8ea7-ff0213fdc675",
   "phase": "COMMITTING",
-  "goal": "テスト用: ヒストリー確認",
-  "retry_count": 0,
+  "goal": "テスト用: DONEフェーズ確認",
+  "retry_count": 1,
   "history": [
     {
       "phase": "PLANNING",
       "status": "OK",
-      "detail": "target_files=['history.md']",
-      "timestamp": "2026-03-05T02:45:36.174891+00:00"
+      "detail": "target_files=['tests/test_main.py']",
+      "timestamp": "2026-03-05T02:45:52.718578+00:00"
     },
     {
       "phase": "CODING",
       "status": "OK",
-      "detail": "files=['workspace/history.md']",
-      "timestamp": "2026-03-05T02:45:42.227400+00:00"
+      "detail": "files=['tests/test_main.py']",
+      "timestamp": "2026-03-05T02:46:05.363054+00:00"
+    },
+    {
+      "phase": "CODING",
+      "status": "FAIL",
+      "detail": "[🔄 SELF-HEALING] Attempt 1/3 — Error: F\n======================================================================\nFAIL: test_main_prints_hell",
+      "timestamp": "2026-03-05T02:46:05.438030+00:00"
     },
     {
       "phase": "REVIEWING",
       "status": "PASS",
-      "detail": "コードはタイプヒントやドキュメントストリング、 syntax エラーが存在しないと見なされる。",
-      "timestamp": "2026-03-05T02:45:45.738636+00:00"
+      "detail": "型ヒントとdocstringが完全に付与されているが、受け入れ基準を満たしていない部分があります。",
+      "timestamp": "2026-03-05T02:46:25.230359+00:00"
     }
   ],
-  "updated_at": "2026-03-05T02:45:45.739405+00:00"
+  "updated_at": "2026-03-05T02:46:25.231420+00:00"
 }
