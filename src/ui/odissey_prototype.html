@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARK ODISSEY - The First Voyage</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root {
+            --neon-pink: #ff79c6;
+            --neon-purple: #bd93f9;
+            --bg-dark: #0d1117;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            color: var(--neon-pink);
+        }
+
+        /* 1. Portal (Entrance) */
+        #portal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, #282a36 0%, #000 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: all 1.2s cubic-bezier(0.7, 0, 0.3, 1);
+        }
+
+        #hatch {
+            width: 280px;
+            height: 280px;
+            border: 12px solid #44475a;
+            border-radius: 50%;
+            background: #161b22;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 0 40px rgba(189, 147, 249, 0.4);
+            position: relative;
+            transition: transform 0.3s;
+        }
+
+        #hatch:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 60px rgba(255, 121, 198, 0.6);
+        }
+
+        #hatch::after {
+            content: "IGNITE";
+            font-weight: bold;
+            font-size: 1.4rem;
+            letter-spacing: 4px;
+            color: var(--neon-pink);
+        }
+
+        .steam {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 2. Wheelhouse UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: none;
+            opacity: 0;
+            transition: opacity 2s;
+        }
+
+        /* 海図 (Sea Chart) */
+        #sea-chart {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 500px;
+            background: rgba(13, 17, 23, 0.85);
+            border: 1px solid var(--neon-purple);
+            padding: 20px;
+            text-align: center;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(189, 147, 249, 0.2);
+        }
+
+        /* 舵 (Ship's Wheel) */
+        #wheel-container {
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            pointer-events: auto;
+            text-align: center;
+        }
+
+        #ships-wheel {
+            width: 160px;
+            height: 160px;
+            background: url('https://img.icons8.com/ios-filled/150/ff79c6/ship-wheel.png');
+            background-size: contain;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .spinning {
+            animation: spin 5s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 計器 (Gauges) */
+        .gauge-panel {
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            background: rgba(13, 17, 23, 0.85);
+            border: 1px solid var(--neon-purple);
+            padding: 20px;
+            border-radius: 4px;
+            min-width: 250px;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 10px;
+            background: #282a36;
+            margin-top: 10px;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        #progress-fill {
+            width: 30%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--neon-purple), var(--neon-pink));
+            transition: width 1s;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- PORTAL: 始動の扉 -->
+    <div id="portal-overlay" onclick="openHatch()">
+        <div id="hatch">
+            <div class="steam" id="steam-effect"></div>
+        </div>
+        <p style="margin-top: 40px; letter-spacing: 8px; font-size: 1.2rem; text-shadow: 0 0 10px var(--neon-pink);">
+            PROJECT ODISSEY</p>
+        <p style="font-size: 0.7rem; opacity: 0.6;">AUTHENTICATION REQUIRED // CLICK TO DIVE</p>
+    </div>
+
+    <!-- WHEELHOUSE: 操舵室 -->
+    <div id="ui-layer">
+        <div id="sea-chart">
+            <p style="font-size: 0.7rem; color: var(--neon-purple); margin: 0;">NAVIGATION HOLOGRAM</p>
+            <h2 style="margin: 10px 0; letter-spacing: 3px;">THE SEA CHART</h2>
+            <div id="mission-log" style="font-size: 0.9rem; color: #50fa7b;">Ready to Navigate the Sea of
+                Intelligence...</div>
+        </div>
+
+        <div class="gauge-panel">
+            <div style="font-size: 0.8rem; margin-bottom: 5px;">📍 VOYAGE PROGRESS</div>
+            <div id="progress-text" style="font-size: 1.5rem; font-weight: bold;">30.0%</div>
+            <div class="progress-track">
+                <div id="progress-fill"></div>
+            </div>
+            <div style="margin-top: 15px; font-size: 0.7rem; color: var(--neon-purple);">SPIRIT (SYLPH) : STABLE</div>
+        </div>
+
+        <div id="wheel-container">
+            <div id="ships-wheel" onclick="toggleThinking()"></div>
+            <p style="font-size: 0.6rem; margin-top: 10px; opacity: 0.7;">THOUGHT ENGINE</p>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, sea;
+
+        function initODISSEY() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000);
+            document.body.appendChild(renderer.domElement);
+
+            // 「知性の海」をワイヤーフレームで構築
+            const geometry = new THREE.PlaneGeometry(100, 100, 40, 40);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x6272a4, wireframe: true, transparent: true, opacity: 0.3
+            });
+            sea = new THREE.Mesh(geometry, material);
+            sea.rotation.x = -Math.PI / 2;
+            scene.add(sea);
+
+            const ambientLight = new THREE.AmbientLight(0x44475a);
+            scene.add(ambientLight);
+
+            const pointLight = new THREE.PointLight(0xbd93f9, 2, 100);
+            pointLight.position.set(0, 10, 5);
+            scene.add(pointLight);
+
+            camera.position.set(0, 4, 12);
+            camera.lookAt(0, 2, 0);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+
+            // 海面のうねり
+            const positions = sea.geometry.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+                positions[i + 2] = Math.sin(x * 0.3 + time) * 0.4 + Math.cos(y * 0.3 + time) * 0.4;
+            }
+            sea.geometry.attributes.position.needsUpdate = true;
+
+            renderer.render(scene, camera);
+        }
+
+        function openHatch() {
+            const hatch = document.getElementById('hatch');
+            const overlay = document.getElementById('portal-overlay');
+            const steam = document.getElementById('steam-effect');
+
+            // 演出：ハッチが震えて蒸気が出る
+            hatch.style.transform = "scale(0.95)";
+            steam.style.opacity = "1";
+
+            setTimeout(() => {
+                overlay.style.opacity = "0";
+                overlay.style.transform = "scale(1.5)";
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                    const ui = document.getElementById('ui-layer');
+                    ui.style.display = 'block';
+                    setTimeout(() => { ui.style.opacity = "1"; }, 100);
+                    initODISSEY();
+                }, 1000);
+            }, 600);
+        }
+
+        function toggleThinking() {
+            const wheel = document.getElementById('ships-wheel');
+            const log = document.getElementById('mission-log');
+            const fill = document.getElementById('progress-fill');
+            const text = document.getElementById('progress-text');
+
+            if (wheel.classList.contains('spinning')) {
+                wheel.classList.remove('spinning');
+                log.innerText = "Task Complete. Anchor dropped at 'Code Island'.";
+                log.style.color = "#50fa7b";
+                fill.style.width = "100%";
+                text.innerText = "100.0%";
+            } else {
+                wheel.classList.add('spinning');
+                log.innerText = "Navigating through the data storms... Searching Brave Telescope.";
+                log.style.color = "#ffb86c";
+                fill.style.width = "65%";
+                text.innerText = "65.4%";
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            if (camera) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+
+</html>
