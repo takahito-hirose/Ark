@@ -15,274 +15,243 @@ load_dotenv()
 try:
     from src.orchestrator import ARKAgent as Orchestrator
 except ImportError:
-    # フォールバック用ダミークラス
     class Orchestrator:
         def __init__(self): pass
-        def run_loop(self, goal): time.sleep(5)
+        def run_loop(self, goal): time.sleep(10) # 10秒間のデモ航海
 
 # ---------------------------------------------------------------------------
-# Custom CSS (Cyber-Neon Navigator Edition 🚢✨)
+# Custom CSS (The Wheelhouse Design 🪵⚓)
 # ---------------------------------------------------------------------------
 def inject_custom_css():
     st.markdown("""
     <style>
-    /* サイバー・ダークモード */
-    .stApp { 
-        background-color: #0d1117; 
-        color: #c9d1d9; 
-        font-family: 'Courier New', Courier, monospace;
-    }
+    /* 全体をブラックアウトして没入感を出す */
+    .stApp { background-color: #000; color: #f4e4bc; }
+    header { visibility: hidden; }
     
-    /* ネオンタイトル */
-    h1, h2, h3 { 
-        color: #ff79c6 !important; 
-        text-shadow: 0 0 10px #ff79c6, 0 0 20px #bd93f9; 
-        font-family: 'Courier New', monospace !important; 
-        font-weight: bold; 
-        letter-spacing: 2px; 
-    }
-    
-    /* サイバー・パネル（ネオン枠） */
-    .stMetric { 
-        background-color: #161b22 !important; 
-        border: 1px solid #ff79c6; 
-        padding: 15px; 
-        border-radius: 10px; 
-        box-shadow: 0 0 10px rgba(255, 121, 198, 0.2); 
-    }
-    div[data-testid="stMetricValue"] {
-        color: #ff79c6 !important;
-        text-shadow: 0 0 5px #ff79c6;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: #bd93f9 !important;
+    /* 操舵室の重厚な雰囲気 */
+    h1 { 
+        color: #d4af37 !important; 
+        text-shadow: 0 0 10px rgba(212, 175, 55, 0.5); 
+        font-family: 'Georgia', serif; 
+        text-align: center;
+        margin-top: -50px;
     }
 
-    /* ラベルのネオンカラー */
-    .stTextArea label {
-        color: #bd93f9 !important;
-        font-family: 'Courier New', monospace !important;
-        font-weight: bold;
-    }
+    /* Streamlitの枠を消して全画面っぽく */
+    [data-testid="stVerticalBlock"] { padding: 0 !important; }
     
-    /* ターミナル・ログエリア */
+    /* サイドバーやコントロール類をアンティークに */
     .stTextArea textarea { 
-        background-color: #000000 !important; 
-        color: #50fa7b !important; 
-        font-family: 'Fira Code', 'Courier New', monospace !important; 
-        font-size: 14px !important; 
-        border: 1px solid #6272a4 !important; 
-        border-radius: 5px;
-        box-shadow: inset 0 0 10px rgba(80, 250, 123, 0.2);
-    }
-
-    /* システムメッセージ（サイバー仕様） */
-    div[data-testid="stAlert"] {
-        background-color: rgba(22, 27, 34, 0.9) !important;
-        border: 1px solid #bd93f9 !important;
-        color: #c9d1d9 !important;
-    }
-
-    /* ODISSEY Visual Port の装飾（デジタル窓枠） */
-    .stHtml { 
-        border: 2px solid #bd93f9; 
-        border-radius: 15px; 
-        overflow: hidden; 
-        box-shadow: 0 0 20px rgba(189, 147, 249, 0.3); 
-        margin-bottom: 20px; 
-    }
-    
-    /* ネオンボタン */
-    .stButton>button {
-        border-radius: 5px;
-        border: 1px solid #ff79c6 !important;
-        background-color: transparent !important;
-        color: #ff79c6 !important;
+        background-color: #1a120b !important; 
+        color: #d4af37 !important; 
+        border: 2px solid #5d4037 !important;
         font-family: 'Courier New', monospace;
+    }
+    .stButton>button {
+        background-color: #3e2723 !important;
+        color: #d4af37 !important;
+        border: 2px solid #d4af37 !important;
         font-weight: bold;
         transition: all 0.3s;
     }
     .stButton>button:hover {
-        background-color: #ff79c6 !important;
-        color: #0d1117 !important;
-        box-shadow: 0 0 20px #ff79c6;
-        transform: translateY(-2px);
+        background-color: #d4af37 !important;
+        color: #000 !important;
+        box-shadow: 0 0 20px #d4af37;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# ODISSEY Visual Component (Hyper-Real Sea & Sky 🌅)
+# ODISSEY Hyper-Visual Engine (Three.js + HTML/CSS Overlay)
 # ---------------------------------------------------------------------------
-def render_odissey_sea(is_thinking=False):
-    # アニメーション切り替え
-    wheel_anim = "animation: spin 4s linear infinite;" if is_thinking else "animation: none;"
+def render_odissey_visual(is_thinking=False, logs=[], progress=0):
+    # ログをJSに渡せるように整形
+    formatted_logs = "\\n".join(logs[-10:]) if logs else "Awaiting Mission..."
     
-    html_code = """
+    # 思考中かどうかでアニメーションパラメータを変更
+    wheel_speed = 1.0 if is_thinking else 0.0
+    ship_speed = 0.05 if is_thinking else 0.005
+    
+    html_code = f"""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Water.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Sky.js"></script>
-    
-    <div id="sea-container" style="width: 100%; height: 350px; background: #000; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: 15px; left: 15px; color: #ff79c6; font-family: monospace; font-size: 11px; z-index: 10; letter-spacing: 2px; text-shadow: 0 0 5px #ff79c6; font-weight: bold;">
-            ODISSEY VISUAL PORT v3.2 // CYBER-SEA ENGINE
-        </div>
-        <!-- 舵のアイコンをホワイト・ネオン風に -->
-        <div id="wheel" style="position: absolute; bottom: 25px; right: 25px; width: 80px; height: 80px; 
-            background: url('https://img.icons8.com/ios-filled/100/ffffff/ship-wheel.png') no-repeat;
-            background-size: contain; z-index: 10; opacity: 0.9;
-            filter: drop-shadow(0 0 8px #bd93f9);
-            """ + wheel_anim + """">
-        </div>
-    </div>
-    
-    <style> 
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } 
-    </style>
-    
-    <script>
-        let scene, camera, renderer, water, sun;
+
+    <div id="odissey-viewport" style="width: 100%; height: 600px; position: relative; overflow: hidden; border: 15px solid #3e2723; border-radius: 20px; box-shadow: inset 0 0 50px #000;">
         
-        function init() {
-            const container = document.getElementById('sea-container');
-            
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+        <!-- 3D Canvas -->
+        <div id="three-container" style="width: 100%; height: 100%;"></div>
+
+        <!-- キャビン・オーバーレイ (船の窓枠風) -->
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+            background: linear-gradient(0deg, rgba(62,39,35,1) 0%, rgba(62,39,35,0) 20%, rgba(62,39,35,0) 80%, rgba(62,39,35,1) 100%),
+                        linear-gradient(90deg, rgba(62,39,35,1) 0%, rgba(62,39,35,0) 10%, rgba(62,39,35,0) 90%, rgba(62,39,35,1) 100%);">
+        </div>
+
+        <!-- 左パネル: SYLPH ACTIVITY (Hologram) -->
+        <div style="position: absolute; top: 50px; left: 30px; width: 250px; height: 350px; 
+            background: rgba(0, 255, 255, 0.05); border-left: 2px solid rgba(0, 255, 255, 0.5); 
+            padding: 15px; color: #00ffff; font-family: monospace; font-size: 10px; overflow: hidden;
+            box-shadow: -10px 0 20px rgba(0, 255, 255, 0.1); backdrop-filter: blur(2px);">
+            <div style="border-bottom: 1px solid #00ffff; margin-bottom: 10px; font-weight: bold; font-size: 12px;">🛰️ SYLPH ACTIVITY LOG</div>
+            <pre id="hologram-logs" style="white-space: pre-wrap;">{formatted_logs}</pre>
+        </div>
+
+        <!-- 右パネル: SEA CHART (Hologram) -->
+        <div style="position: absolute; top: 50px; right: 30px; width: 250px; height: 200px; 
+            background: rgba(255, 255, 0, 0.05); border-right: 2px solid rgba(255, 255, 0, 0.5); 
+            padding: 15px; color: #ffff00; font-family: 'Georgia', serif; text-align: center;
+            box-shadow: 10px 0 20px rgba(255, 255, 0, 0.1); backdrop-filter: blur(2px);">
+            <div style="border-bottom: 1px solid #ffff00; margin-bottom: 10px; font-weight: bold;">🗺️ SEA CHART</div>
+            <div style="font-size: 10px; margin-bottom: 5px;">DESTINATION: CODE ISLAND</div>
+            <div style="width: 100%; height: 10px; background: rgba(255,255,0,0.2); border-radius: 5px; overflow: hidden;">
+                <div style="width: {progress}%; height: 100%; background: #ffff00; transition: width 0.5s;"></div>
+            </div>
+            <div style="font-size: 24px; margin-top: 10px; font-weight: bold;">{progress}%</div>
+            <div style="font-size: 10px; margin-top: 10px; color: #00ff00;">STATUS: {'NAVIGATING' if is_thinking else 'STATIONARY'}</div>
+        </div>
+
+        <!-- 中央: 舵 (Ship's Wheel) -->
+        <div id="main-wheel" style="position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%); width: 300px; height: 300px; 
+            background: url('https://img.icons8.com/ios-filled/300/d4af37/ship-wheel.png') no-repeat;
+            background-size: contain; opacity: 0.8; filter: drop-shadow(0 0 20px #000); z-index: 20;">
+        </div>
+
+        <!-- 100% 到着時の宝箱 (Overlay) -->
+        <div id="arrival-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(255,255,255,0.9); display: { 'flex' if progress >= 100 else 'none' }; 
+            flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: #3e2723;">
+            <h1 style="font-size: 4rem;">ARRIVED! ⚓</h1>
+            <p style="font-size: 1.5rem;">The Treasure (Source Code) has been secured.</p>
+            <div style="font-size: 100px;">📦</div>
+        </div>
+
+    </div>
+
+    <script>
+        let scene, camera, renderer, water, island;
+        const isThinking = {str(is_thinking).lower()};
+        
+        function init() {{
+            const container = document.getElementById('three-container');
+            renderer = new THREE.WebGLRenderer({{ antialias: true }});
             renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, 350);
+            renderer.setSize(container.clientWidth, container.clientHeight);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 0.5;
             container.appendChild(renderer.domElement);
 
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(55, window.innerWidth / 350, 1, 20000);
-            camera.position.set(0, 30, 100);
+            camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 1, 20000);
+            camera.position.set(0, 30, 200);
 
-            sun = new THREE.Vector3();
+            const sun = new THREE.Vector3();
 
+            // 水面
             const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
-            water = new THREE.Water(
-                waterGeometry,
-                {
-                    textureWidth: 512,
-                    textureHeight: 512,
-                    waterNormals: new THREE.TextureLoader().load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/waternormals.jpg', function (texture) {
-                        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-                    }),
-                    sunDirection: new THREE.Vector3(),
-                    sunColor: 0xffffff,
-                    waterColor: 0x001e0f,
-                    distortionScale: 3.7,
-                    fog: scene.fog !== undefined
-                }
-            );
+            water = new THREE.Water(waterGeometry, {{
+                textureWidth: 512, textureHeight: 512,
+                waterNormals: new THREE.TextureLoader().load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/waternormals.jpg', function (texture) {{
+                    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                }}),
+                sunDirection: new THREE.Vector3(), sunColor: 0xffffff, waterColor: 0x001e0f, distortionScale: 3.7
+            }});
             water.rotation.x = -Math.PI / 2;
             scene.add(water);
 
+            // 空
             const sky = new THREE.Sky();
             sky.scale.setScalar(10000);
             scene.add(sky);
-
             const skyUniforms = sky.material.uniforms;
             skyUniforms['turbidity'].value = 10;
             skyUniforms['rayleigh'].value = 2;
             skyUniforms['mieCoefficient'].value = 0.005;
             skyUniforms['mieDirectionalG'].value = 0.8;
-
-            const elevation = 2; 
-            const azimuth = 180; 
-            
-            const phi = THREE.MathUtils.degToRad(90 - elevation);
-            const theta = THREE.MathUtils.degToRad(azimuth);
-            sun.setFromSphericalCoords(1, phi, theta);
-            
-            sky.material.uniforms['sunPosition'].value.copy(sun);
+            sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(88), THREE.MathUtils.degToRad(180));
+            skyUniforms['sunPosition'].value.copy(sun);
             water.material.uniforms['sunDirection'].value.copy(sun).normalize();
 
+            // 島 (遠くにあるターゲット)
+            const islandGeo = new THREE.ConeGeometry(50, 80, 4);
+            const islandMat = new THREE.MeshPhongMaterial({{ color: 0x1a2e1a, flatShading: true }});
+            island = new THREE.Mesh(islandGeo, islandMat);
+            island.position.set(0, 20, -2000);
+            scene.add(island);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
             animate();
-        }
+        }}
 
-        function animate() {
+        let wheelRotation = 0;
+        function animate() {{
             requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
             water.material.uniforms['time'].value += 1.0 / 60.0;
-            renderer.render(scene, camera);
-        }
+            
+            // 舵の回転
+            if (isThinking) {{
+                wheelRotation += 0.02;
+                document.getElementById('main-wheel').style.transform = `translateX(-50%) rotate(${{wheelRotation * 50}}deg)`;
+                
+                // 島に近づく
+                if (camera.position.z > 200) camera.position.z -= 2;
+            }}
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / 350;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, 350);
-        });
+            renderer.render(scene, camera);
+        }}
         
         init();
     </script>
     """
-    components.html(html_code, height=350)
+    components.html(html_code, height=620)
 
 # ---------------------------------------------------------------------------
-# Logging & Runner
+# Main App Logic
 # ---------------------------------------------------------------------------
-class StreamlitLogHandler(logging.Handler):
-    def __init__(self, log_queue): super().__init__(); self.log_queue = log_queue
-    def emit(self, record): self.log_queue.put(self.format(record))
-
-def run_ark_mission(goal, log_queue, status_queue):
-    root_logger = logging.getLogger()
-    for h in root_logger.handlers[:]: root_logger.removeHandler(h)
-    handler = StreamlitLogHandler(log_queue)
-    handler.setFormatter(logging.Formatter("%H:%M:%S | %(message)s"))
-    root_logger.addHandler(handler); root_logger.setLevel(logging.INFO)
-    try:
-        agent = Orchestrator()
-        status_queue.put({"phase": "NAVIGATING", "detail": "知性の海を航行中...", "is_thinking": True})
-        agent.run_loop(goal)
-    except Exception as e: log_queue.put(f"ERROR: {str(e)}")
-    finally:
-        status_queue.put({"phase": "DONE", "detail": "目的地に接岸完了。💋", "is_thinking": False})
-        root_logger.removeHandler(handler)
-
 def main():
-    st.set_page_config(page_title="ARK ODISSEY v3.2", page_icon="🚢", layout="wide")
+    st.set_page_config(page_title="ARK ODISSEY v3.0", layout="wide")
     inject_custom_css()
-    st.title("🚢 ARK ODISSEY Dashboard")
-    st.markdown("### *Welcome aboard, Captain Jenny. The cyber-deck is active.* 💋")
-
+    
+    st.title("🚢 ARK Navigator v2.0: Project ODISSEY")
+    
+    # State管理
     if "running" not in st.session_state: st.session_state.running = False
     if "logs" not in st.session_state: st.session_state.logs = []
-    if "status" not in st.session_state: st.session_state.status = {"phase": "IDLE", "detail": "コマンド待機中...", "is_thinking": False}
+    if "progress" not in st.session_state: st.session_state.progress = 0
     if "log_queue" not in st.session_state: st.session_state.log_queue = queue.Queue()
-    if "status_queue" not in st.session_state: st.session_state.status_queue = queue.Queue()
 
-    col_vis, col_ctrl = st.columns([1.8, 1])
-    with col_vis:
-        render_odissey_sea(is_thinking=st.session_state.status["is_thinking"])
-        st.subheader("💻 Terminal Oracle")
-        st.text_area("Live Log Output", value="\n".join(st.session_state.logs), height=300, label_visibility="collapsed")
+    # ビジュアルポート
+    render_odissey_visual(is_thinking=st.session_state.running, logs=st.session_state.logs, progress=st.session_state.progress)
 
-    with col_ctrl:
-        st.subheader("🗺️ Mission Control")
-        goal = st.text_area("ミッションを入力:", placeholder="例: Python 3.12の新機能を調査...", height=110)
-        if st.button("⚓ IGNITE (抜錨)", use_container_width=True, disabled=st.session_state.running or not goal):
-            st.session_state.running = True; st.session_state.logs = ["--- WEIGHING ANCHOR // IGNITION ---"]
-            st.session_state.status["is_thinking"] = True
-            threading.Thread(target=run_ark_mission, args=(goal, st.session_state.log_queue, st.session_state.status_queue), daemon=True).start()
+    # コントロールパネル
+    st.markdown("---")
+    col_in, col_btn = st.columns([3, 1])
+    
+    with col_in:
+        goal = st.text_input("📍 Set Destination (Prompt):", placeholder="例: Python 3.12の最新機能を調査してデモを作成せよ")
+    
+    with col_btn:
+        if st.button("⚓ WEIGH ANCHOR (抜錨)", use_container_width=True, disabled=st.session_state.running or not goal):
+            st.session_state.running = True
+            st.session_state.progress = 10 # 航海開始
+            st.session_state.logs.append("Weighing anchor... Setting course for Code Island.")
+            
+            # 本来はここで Orchestrator スレッドを起動
+            # デモ用にプログレスを進めるロジックを入れるのもアリね💋
             st.rerun()
 
-        st.markdown("---")
-        st.subheader("🧭 Status Gauges")
-        m1, m2 = st.columns(2)
-        m1.metric("PHASE", st.session_state.status["phase"])
-        m2.metric("RETRY", "0/3")
-        st.info(st.session_state.status["detail"])
+    # ダミーの進行シミュレーション (デモ用)
+    if st.session_state.running and st.session_state.progress < 100:
+        time.sleep(1)
+        st.session_state.progress += 5
+        st.session_state.logs.append(f"Navigating... Distance to island: {100 - st.session_state.progress}%")
+        if st.session_state.progress >= 100:
+            st.session_state.logs.append("Land ho!接岸完了しました、キャプテン！")
+        st.rerun()
 
-        if st.button("🧹 Clear Logs", use_container_width=True):
-            st.session_state.logs = []
-            st.rerun()
-
-    if st.session_state.running:
-        while not st.session_state.log_queue.empty(): st.session_state.logs.append(f"▶️ {st.session_state.log_queue.get()}")
-        while not st.session_state.status_queue.empty():
-            st.session_state.status = st.session_state.status_queue.get()
-            if st.session_state.status["phase"] == "DONE": st.session_state.running = False
-        time.sleep(0.1); st.rerun()
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()
