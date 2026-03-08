@@ -1,7 +1,7 @@
 """
 ARK (Autonomous Resilient Kernel) — Provider Factory
 =====================================================
-エージェントロール（architect / coder / reviewer）に対応する
+エージェントロール（architect / coder / reviewer / reflector）に対応する
 :class:`~src.core.providers.BaseProvider` インスタンスを生成するファクトリー。
 
 設定値の優先順位は :class:`~src.core.config.ARKConfig` に従う:
@@ -9,21 +9,6 @@ ARK (Autonomous Resilient Kernel) — Provider Factory
 1. 環境変数 ``ARK_ARCHITECT_PROVIDER`` 等
 2. ``config.yaml``
 3. デフォルト値 ``"ollama"``
-
-Usage
------
-::
-
-    from src.core.config import ConfigLoader
-    from src.core.factory import get_provider
-
-    cfg = ConfigLoader.load()
-
-    architect_provider = get_provider("architect", cfg)
-    coder_provider     = get_provider("coder",     cfg)
-    reviewer_provider  = get_provider("reviewer",   cfg)
-
-    response = architect_provider.generate("設計を考えよ")
 """
 
 from __future__ import annotations
@@ -61,85 +46,52 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
     ----------
     role:
         エージェントのロール名。
-        ``"architect"`` / ``"coder"`` / ``"reviewer"`` のいずれか。
+        ``"architect"`` / ``"coder"`` / ``"reviewer"`` / ``"reflector"`` のいずれか。
     cfg:
         :class:`~src.core.config.ARKConfig` のインスタンス。
-        ``architect_provider``, ``coder_provider``, ``reviewer_provider``
-        フィールドを参照してプロバイダー名を決定する。
 
     Returns
     -------
     BaseProvider
         指定されたロールに対応するプロバイダーインスタンス。
-
-    Raises
-    ------
-    ValueError
-        ``role`` が未知のロール名の場合、または
-        設定に未登録のプロバイダー名が指定されている場合。
-
-    Examples
-    --------
-    >>> from src.core.config import ConfigLoader
-    >>> from src.core.factory import get_provider
-    >>> cfg = ConfigLoader.load()
-    >>> provider = get_provider("architect", cfg)
-    >>> isinstance(provider, BaseProvider)
-    True
     """
-    # ---- ロールからプロバイダー名を解決 ------------------------------------
     role_lower = role.lower().strip()
 
-    role_to_attr: dict[str, str] = {
+    # ---- 1. ロールからプロバイダー属性名を解決 --------------------------------
+    role_to_provider_attr: dict[str, str] = {
         "architect": "architect_provider",
         "coder":     "coder_provider",
         "reviewer":  "reviewer_provider",
+        "reflector": "reflector_provider", # 👈 Reflector を追加！💋
     }
 
-    if role_lower not in role_to_attr:
+    if role_lower not in role_to_provider_attr:
         raise ValueError(
             f"未知のロール名: {role!r}。"
-            f" 有効なロール: {list(role_to_attr.keys())}"
+            f" 有効なロール: {list(role_to_provider_attr.keys())}"
         )
 
-    provider_name: str = getattr(cfg, role_to_attr[role_lower], "ollama").lower().strip()
+    # config からプロバイダー名（ollama/gemini等）を取得
+    provider_name: str = getattr(cfg, role_to_provider_attr[role_lower], "ollama").lower().strip()
 
-    # ---- ロールからモデル名を解決 ------------------------------------------
-    role_to_model: dict[str, str] = {
-        "architect": "architect_model",
-        "coder":     "coder_model",
-        "reviewer":  "reviewer_model",
-    }
-    model_name: str = getattr(cfg, role_to_model[role_lower], cfg.model_name)
+    # ---- 2. プロバイダー種別に応じてモデル属性名を解決 --------------------------
+    # Gemini の場合は _gemini サフィックスが付いたフィールド（例: coder_model_gemini）を優先するわ
+    is_gemini = (provider_name == "gemini")
+    suffix = "_gemini" if is_gemini else ""
+    
+    model_attr_name = f"{role_lower}_model{suffix}"
+    
+    # config からモデル名を取得。なければグローバルの cfg.model_name にフォールバック
+    model_name: str = getattr(cfg, model_attr_name, cfg.model_name)
 
     log.info("Role %r → provider %r (model=%s)", role, provider_name, model_name)
 
-    # ---- プロバイダー名からインスタンスを生成 --------------------------------
+    # ---- 3. プロバイダーのビルド --------------------------------------------
     return _build_provider(provider_name, model_name, cfg)
 
 
 def _build_provider(provider_name: str, model_name: str, cfg: "ARKConfig") -> BaseProvider:
-    """プロバイダー名と設定からインスタンスを生成する内部ヘルパー。
-
-    Parameters
-    ----------
-    provider_name:
-        ``"ollama"`` / ``"mock"`` / ``"gemini"`` のいずれか。
-    model_name:
-        使用するモデル名。
-    cfg:
-        ARK設定オブジェクト。
-
-    Returns
-    -------
-    BaseProvider
-        生成されたプロバイダーインスタンス。
-
-    Raises
-    ------
-    ValueError
-        `provider_name` が未登録の場合。
-    """
+    """プロバイダー名と設定からインスタンスを生成する内部ヘルパー。"""
     if provider_name not in _PROVIDER_REGISTRY:
         raise ValueError(
             f"未登録のプロバイダー名: {provider_name!r}。"
@@ -162,23 +114,12 @@ def _build_provider(provider_name: str, model_name: str, cfg: "ARKConfig") -> Ba
         )
 
     else:
-        # _PROVIDER_REGISTRY のチェックで到達しないが型安全のために残す
-        raise ValueError(f"未登録のプロバイダー名: {provider_name!r}")  # pragma: no cover
+        raise ValueError(f"未登録のプロバイダー名: {provider_name!r}")
 
     log.debug("Built provider: %r", provider)
     return provider
 
 
-# ---------------------------------------------------------------------------
-# Utility: list available providers
-# ---------------------------------------------------------------------------
-
 def list_providers() -> list[str]:
-    """登録済みプロバイダー名の一覧を返す。
-
-    Returns
-    -------
-    list[str]
-        例: ``["ollama", "mock", "gemini"]``
-    """
+    """登録済みプロバイダー名の一覧を返す。"""
     return sorted(_PROVIDER_REGISTRY.keys())

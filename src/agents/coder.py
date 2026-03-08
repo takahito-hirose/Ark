@@ -7,8 +7,7 @@ ARK — Coder Agent (SYLPH)
 ----
 - :class:`~src.core.models.PlanPayload` を受け取りコードを生成し、
   :class:`~src.core.models.CodePayload` を返す。
-- LLMレスポンスからファイルパスとコード本体を抽出する。
-- パース失敗時はセーフなフォールバックコードを使用してループを継続する。
+- 記憶の責務は Reflector に移譲され、純粋なコーディングマシーンとして機能する。
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.agents.base_agent import BaseAgent
 from src.core.agents import build_coder_prompt, build_remediation_prompt
@@ -29,44 +28,15 @@ if TYPE_CHECKING:
 log = logging.getLogger("ARK.Coder")
 
 # ---------------------------------------------------------------------------
-# System prompt & Rules
+# Engineering Quality Rules 💋
 # ---------------------------------------------------------------------------
 
-DEPENDENCY_RULE = """
-【依存関係の鉄則】
-1. 新しい外部ライブラリを `import` した場合は、必ず `requirements.txt` も出力し、そのパッケージ名を追加すること。
-2. `requirements.txt` は常に最新の `import` 状況と同期していること。
-3. 標準ライブラリ（os, sys, json, pathlib 等）は `requirements.txt` に含めないこと。
+QUALITY_RULE = """
+【エンジニアリング品質の義務】
+1. あなたは Python シニアエンジニアとして、すべての関数・メソッドに厳密な型ヒント (typing) を付与しなければなりません。
+2. モジュールおよびすべての公開関数には、詳細な docstring を付与してください。
+3. リビュアーは非常に厳格であり、型ヒントの欠如を許しません。一発でパスする「完璧なコード」を出力してください。
 """
-
-_SYSTEM_PROMPT = f"""\
-あなたはARKフレームワークのCoder SYLPHです。
-以下の実装計画に基づいてPythonコードを生成してください。
-
-## 出力フォーマット（厳守）
-FILE: <ファイルパス>
-```python
-<生成するコード全体>
-```
-
-## 制約
-- Python 3.11+ に準拠すること
-- すべての関数・メソッドに型ヒントを付けること
-- モジュールに docstring を付けること
-{DEPENDENCY_RULE}
-
-## 実装計画
-ゴール: {{goal}}
-対象ファイル: {{target_files}}
-制約: {{constraints}}
-受け入れ基準: {{acceptance}}
-
-## 試行回数
-{{retry}}回目の実装（0が初回）
-
-{{reviewer_feedback}}
-"""
-
 
 # ---------------------------------------------------------------------------
 # CoderAgent
@@ -75,8 +45,14 @@ FILE: <ファイルパス>
 class CoderAgent(BaseAgent):
     """実装担当SYLPHエージェント。"""
 
-    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
+    def __init__(
+        self, 
+        provider: "BaseProvider", 
+        workspace_path: Path | None = None,
+        tools: list[Any] | None = None
+    ) -> None:
         super().__init__(provider, role="coder", workspace_path=workspace_path)
+        # 👈 記憶ツールは Reflector が担当するため、Coder 内では保持のみ（使用はしない）にします。
 
     def code(
         self,
@@ -90,18 +66,20 @@ class CoderAgent(BaseAgent):
             retry + 1, plan.target_files,
         )
 
-        enhanced_constraints = f"{plan.constraints}\n\n{DEPENDENCY_RULE}" if isinstance(plan.constraints, str) else plan.constraints
-
+        # 品質ルールを制約に結合
+        constraints = f"{plan.constraints}\n\n{QUALITY_RULE}"
+        
         prompt = build_coder_prompt(
             goal=plan.goal,
             target_files=plan.target_files,
-            constraints=enhanced_constraints,
+            constraints=constraints,
             acceptance=plan.acceptance_criteria,
             retry=retry,
             workspace_path=self._workspace_path,
             reviewer_feedback=reviewer_feedback
         )
         
+        # 👈 純粋な LLM 呼び出しのみ（ツール実行ループは不要）
         response = self._call_llm(prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
@@ -117,7 +95,7 @@ class CoderAgent(BaseAgent):
         """実行エラーを分析し、修正コードを生成する。"""
         log.info("[Coder] Remediating code (attempt %d) due to: %s", retry, failure_reason)
         
-        enhanced_reason = f"{failure_reason}\n\n※修正時も以下のルールを守ること:\n{DEPENDENCY_RULE}"
+        enhanced_reason = f"{failure_reason}\n\n※修正時も以下のルールを厳守せよ:\n{QUALITY_RULE}"
 
         prompt = build_remediation_prompt(
             goal=plan.goal,
@@ -133,6 +111,10 @@ class CoderAgent(BaseAgent):
         response = self._call_llm(prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
+    # ------------------------------------------------------------------
+    # Parser
+    # ------------------------------------------------------------------
+
     def _parse_response(
         self,
         response: str,
@@ -144,7 +126,7 @@ class CoderAgent(BaseAgent):
         target_path = plan.target_files[0] if plan.target_files else "workspace/output.py"
         file_changes: list[FileChange] = []
 
-        # あらゆる言語タグに対応する正規表現
+        # あらゆる言語タグ（python, text, txt等）を許容する正規表現 💋
         pattern = r"FILE:\s*([^\n]+)\n```[a-zA-Z0-9_-]*\n(.*?)```"
         matches = re.findall(pattern, response, re.DOTALL | re.IGNORECASE)
 
@@ -163,7 +145,7 @@ class CoderAgent(BaseAgent):
 
         # 実行対象は .py ファイルを優先
         py_files = [f.path for f in file_changes if f.path.endswith(".py")]
-        main_script = py_files[0] if py_files else file_changes[0].path
+        main_script = py_files[0] if py_files else file_changes[0].path if file_changes else "main.py"
 
         return CodePayload(
             plan_ref=plan.goal[:40],
@@ -182,9 +164,10 @@ class CoderAgent(BaseAgent):
             \"\"\"ARK generated module.\"\"\"
 
             def main() -> None:
+                \"\"\"Entry point.\"\"\"
                 print("Hello from ARK CoderAgent!")
 
             if __name__ == "__main__":
                 main()
         """)
-        return FileChange(path=path, action=FileAction.CREATE, content=content)
+        return FileChange(path=path, action=FileChange.CREATE, content=content)

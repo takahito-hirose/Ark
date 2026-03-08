@@ -17,6 +17,7 @@ workspace_path: "workspace"
 architect_provider: "ollama"
 coder_provider: "ollama"
 reviewer_provider: "ollama"
+reflector_provider: "ollama"  # 👈 Reflector 用のプロバイダを追加！
 
 # ---------------------------------------------------------------------------
 # Role-specific Model Selection for Ollama
@@ -25,6 +26,7 @@ reviewer_provider: "ollama"
 architect_model: "gemma3:4b"
 coder_model: "qwen2.5-coder:7b"
 reviewer_model: "llama3.2:3b"
+reflector_model: "llama3.2:3b"  # 👈 Reflector 用のモデルを追加（Reviewerと同じかgemma3:4bがオススメ）
 
 # ---------------------------------------------------------------------------
 # Google Gemini settings (会社に戻った時はここを gemini に戻してね)
@@ -33,3 +35,4 @@ gemini_api_key: ""
 architect_model_gemini: "gemini-2.0-flash"
 coder_model_gemini: "gemini-2.0-flash"
 reviewer_model_gemini: "gemini-2.0-flash"
+reflector_model_gemini: "gemini-2.0-flash" # 👈 Geminiモード用も忘れずに！

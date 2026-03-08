@@ -1,11 +1,23 @@
+"""
+ARK — Agents Prompt Core
+=========================
+各エージェント向けのシステムプロンプトおよび命令文を構築するロジック。
+Phase 4-B 以降の「責務の分離」に基づき、Reflector 向けのプロンプトを追加。
+"""
+
 from __future__ import annotations
 
 import logging
+import textwrap
 from pathlib import Path
 from src.core.tools import read_file
 from src.core.models import ExecutionAttempt
 
 log = logging.getLogger("ARK.AgentsCore")
+
+# ---------------------------------------------------------------------------
+# Shared Context Helpers
+# ---------------------------------------------------------------------------
 
 def get_initial_context(workspace_path: Path) -> str:
     """
@@ -13,7 +25,6 @@ def get_initial_context(workspace_path: Path) -> str:
     """
     context_parts = []
     # 主要な設定ファイルやREADME、既存のソースコードをスキャン
-    # 今回はシンプルに、直下の README.md と main.py を対象とする（拡張可能）
     targets = ["README.md", "main.py", "requirements.txt"]
     
     for target in targets:
@@ -25,6 +36,10 @@ def get_initial_context(workspace_path: Path) -> str:
         return "No existing context found in workspace."
     
     return "\n\n".join(context_parts)
+
+# ---------------------------------------------------------------------------
+# Architect Prompt
+# ---------------------------------------------------------------------------
 
 def build_architect_prompt(goal: str, workspace_path: Path) -> str:
     """
@@ -53,6 +68,10 @@ ACCEPTANCE: <カンマ区切りの受け入れ基準リスト>
 {goal}
 """
 
+# ---------------------------------------------------------------------------
+# Coder Prompt
+# ---------------------------------------------------------------------------
+
 def build_coder_prompt(
     goal: str,
     target_files: list[str],
@@ -63,7 +82,7 @@ def build_coder_prompt(
     reviewer_feedback: str = ""
 ) -> str:
     """
-    Coder 向けのプロンプトを構築します（初期コンテキスト付き）。
+    Coder 向けのプロンプトを構築します（職人モード）。
     """
     context = get_initial_context(workspace_path)
     
@@ -73,7 +92,7 @@ def build_coder_prompt(
 
     return f"""\
 あなたはARKフレームワークのCoder SYLPHです。
-以下の実装計画に基づいてPythonコードを生成してください。
+あなたは Python のシニアエンジニアとして、最高品質のコードを生成する責務があります。
 
 ## ワークスペースの初期コンテキスト
 {context}
@@ -84,10 +103,11 @@ FILE: <ファイルパス>
 <生成するコード全体>
 ```
 
-## 制約
-- Python 3.11+ に準拠すること
-- すべての関数・メソッドに型ヒントを付けること
-- モジュールに docstring を付けること
+## 🛠 エンジニアリング品質の義務
+- Python 3.11+ に準拠すること。
+- すべての関数・メソッドに厳密な型ヒント (typing) を付与すること。
+- モジュールおよび公開関数には詳細な docstring を付けること。
+- リビュアーは非常に厳格です。一発でパスする「完璧なコード」を出力してください。
 
 ## 実装計画
 ゴール: {goal}
@@ -99,6 +119,10 @@ FILE: <ファイルパス>
 {retry}回目の実装（0が初回）
 {feedback_section}
 """
+
+# ---------------------------------------------------------------------------
+# Remediation Prompt (Self-Healing)
+# ---------------------------------------------------------------------------
 
 def build_remediation_prompt(
     goal: str,
@@ -112,7 +136,6 @@ def build_remediation_prompt(
 ) -> str:
     """
     実行エラーが発生した際の修正用プロンプトを構築します。
-    過去の失敗履歴（Short-Term Memory）を含めます。
     """
     context = get_initial_context(workspace_path)
     
@@ -135,7 +158,7 @@ def build_remediation_prompt(
 
     return f"""\
 あなたはARKフレームワークのCoder SYLPHです。
-直前のコード実行でエラーが発生しました。提供されたスタックトレースおよび【これまでの試行履歴】を詳細に分析し、問題を修正した完全なコードを再生成してください。
+直前のコード実行でエラーが発生しました。スタックトレースを分析し、問題を修正してください。
 
 ## ワークスペースの初期コンテキスト
 {context}
@@ -151,17 +174,17 @@ def build_remediation_prompt(
 {current_source}
 {history_section}
 
-## ⚠️ 重要：セルフヒーリング制約
-これまでの失敗履歴を分析し、**既に試して失敗したアプローチを絶対に繰り返さないこと**。
-履歴から根本原因を推測し、必要であれば設計を見直し、全く新しいアプローチでコードを修正してください。
+## ⚠️ セルフヒーリング制約
+- 既に試して失敗したアプローチを繰り返さないこと。
+- 型ヒントと docstring の品質を維持したまま修正すること。
 
-## 出力フォーマット（厳守）
+## 出力フォーマット
 FILE: <ファイルパス>
 ```python
 <修正後のコード全体>
 ```
 
-## 実装計画（再確認）
+## 実装計画
 ゴール: {goal}
 対象ファイル: {", ".join(target_files)}
 
@@ -169,9 +192,47 @@ FILE: <ファイルパス>
 {retry}回目の修正試行（セルフヒーリング）
 """
 
+# ---------------------------------------------------------------------------
+# Reflector Prompt (Memory Extraction)
+# ---------------------------------------------------------------------------
+
+def build_reflector_prompt(goal: str, files: list[str], code_summary: str) -> str:
+    """
+    Reflector 向けのプロンプトを構築します（記憶抽出用）。
+    """
+    return f"""\
+あなたはARKフレームワークのReflector（振り返り担当）SYLPHです。
+完了したタスクを分析し、将来の航海に役立つ知見やプロジェクトのルールを抽出してください。
+
+## ミッション情報
+ゴール: {goal}
+対象ファイル: {", ".join(files)}
+
+## 最終コードのサマリー
+{code_summary}
+
+## あなたの責務
+今回の経験から「保存すべきルール」や「成功体験」を抽出し、以下のフォーマットで出力してください。
+
+### 記憶ツールの使用フォーマット（正確に出力せよ）
+1. プロジェクトの新しい「掟」や「前提ルール」を永続化する場合:
+TOOL_CALL: save_core_rule | ルール名 | ルールの内容
+
+2. 成功体験や知見をアーカイブする場合:
+TOOL_CALL: archive_experience | 解決した問題や得られた知見の要約
+
+## 思考ガイド
+- ユーザーから「覚えておいて」「これがルールだ」と言われた内容は必ず `save_core_rule` で保存すること。
+- コードの実装で苦労した点や、リビュアーをパスするために必要だった工夫を `archive_experience` で記録すること。
+"""
+
+# ---------------------------------------------------------------------------
+# Commit Message Prompt
+# ---------------------------------------------------------------------------
+
 def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
     """
-    今回の変更内容を要約し、Conventional Commits 形式のメッセージを生成します。
+    Gitコミットメッセージ生成用プロンプト。
     """
     return f"""\
 あなたはARKフレームワークのCoder SYLPHです。
@@ -188,9 +249,5 @@ def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
 - type: fix, feat, docs, style, refactor, test, chore
 - 英語で記述すること。
 - 50文字以内。
-- 本文等は含まず、メッセージ1行のみを出力すること。
-
-## 出力例
-feat: implement short-term memory logic
-fix: handle port conflict in web server
+- メッセージ1行のみを出力すること。
 """

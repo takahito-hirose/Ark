@@ -31,8 +31,6 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Optional dependency resolution
 # ---------------------------------------------------------------------------
-# pydantic-settings is preferred; fall back to a lightweight YAML-only loader
-# so the project can bootstrap even before dependencies are installed.
 try:
     from pydantic import field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -72,17 +70,7 @@ DEFAULT_CONFIG_PATH: Path = _project_root() / "config.yaml"
 if _PYDANTIC_SETTINGS_AVAILABLE:
 
     class ARKConfig(BaseSettings):
-        """Validated ARK runtime configuration.
-
-        Attributes
-        ----------
-        model_name:
-            Name of the local LLM served by Ollama (or compatible runner).
-        api_endpoint:
-            Base URL of the local LLM API (e.g. ``http://localhost:11434``).
-        workspace_path:
-            Absolute path to the AI sandbox workspace directory.
-        """
+        """Validated ARK runtime configuration."""
 
         model_config = SettingsConfigDict(
             env_prefix="ARK_",
@@ -92,29 +80,32 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
         )
 
         # --- LLM 基本設定 ---
-        model_name: str = "deepseek-coder-v2"
+        model_name: str = "qwen2.5-coder:7b"
         api_endpoint: str = "http://localhost:11434"
         workspace_path: Path = _project_root() / "workspace"
 
         # --- エージェントごとのプロバイダー設定 ---
         # 有効な値: "ollama" | "gemini" | "mock"
-        # 環境変数: ARK_ARCHITECT_PROVIDER / ARK_CODER_PROVIDER / ARK_REVIEWER_PROVIDER
         architect_provider: str = "ollama"
         coder_provider: str = "ollama"
         reviewer_provider: str = "ollama"
+        reflector_provider: str = "ollama"  # 👈 New!
+
+        # --- モデル指定 (Ollama/General) ---
+        architect_model: str = "gemma3:4b"
+        coder_model: str = "qwen2.5-coder:7b"
+        reviewer_model: str = "llama3.2:3b"
+        reflector_model: str = "llama3.2:3b"  # 👈 New!
 
         # --- Gemini 設定 ---
-        # 環境変数: ARK_GEMINI_API_KEY / ARK_GEMINI_MODEL_NAME
         gemini_api_key: str = ""
+        gemini_model_name: str = "gemini-2.0-flash"
         
-        # ロールごとのモデル指定 (Geminiで主に使用)
-        # 指定がない場合は gemini_model_name が使われる (factory.py 側の実装に依る)
-        architect_model: str = "gemini-1.5-pro"
-        coder_model: str = "gemini-1.5-flash"
-        reviewer_model: str = "gemini-1.5-flash"
-
-        # 互換性のためのデフォルトモデル名
-        gemini_model_name: str = "gemini-1.5-flash"
+        # ロールごとのGeminiモデル指定
+        architect_model_gemini: str = "gemini-2.0-flash"  # 👈 Updated to 2.0
+        coder_model_gemini: str = "gemini-2.0-flash"
+        reviewer_model_gemini: str = "gemini-2.0-flash"
+        reflector_model_gemini: str = "gemini-2.0-flash" # 👈 New!
 
         @field_validator("workspace_path", mode="before")
         @classmethod
@@ -126,45 +117,18 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
         def _strip_trailing_slash(cls, v: Any) -> str:
             return str(v).rstrip("/")
 
-    # -----------------------------------------------------------------------
-    # ConfigLoader
-    # -----------------------------------------------------------------------
-
     class ConfigLoader:
-        """Factory that constructs a validated :class:`ARKConfig`.
-
-        Examples
-        --------
-        >>> cfg = ConfigLoader.load()
-        >>> cfg.model_name
-        'deepseek-coder-v2'
-        """
+        """Factory that constructs a validated :class:`ARKConfig`."""
 
         @staticmethod
         def load(config_path: Path | None = None) -> ARKConfig:
-            """Load and return an :class:`ARKConfig` instance.
-
-            Parameters
-            ----------
-            config_path:
-                Path to the YAML configuration file.  Defaults to
-                ``<project_root>/config.yaml``.
-
-            Returns
-            -------
-            ARKConfig
-                A fully-validated configuration object.
-            """
             path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
             yaml_values: dict[str, Any] = {}
 
             if path.is_file():
                 if not _YAML_AVAILABLE:
                     import warnings
-                    warnings.warn(
-                        "pyyaml is not installed; ignoring config.yaml.",
-                        stacklevel=2,
-                    )
+                    warnings.warn("pyyaml is not installed; ignoring config.yaml.", stacklevel=2)
                 else:
                     with path.open("r", encoding="utf-8") as fh:
                         yaml_values = yaml.safe_load(fh) or {}
@@ -177,12 +141,11 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
             print("\n⚙️   ARK Configuration")
             print("  ─────────────────────────────────────")
             print(f"  model_name         : {cfg.model_name}")
-            print(f"  api_endpoint       : {cfg.api_endpoint}")
             print(f"  workspace_path     : {cfg.workspace_path}")
-            print(f"  architect_provider : {cfg.architect_provider}")
-            print(f"  coder_provider     : {cfg.coder_provider}")
-            print(f"  reviewer_provider  : {cfg.reviewer_provider}")
-            print(f"  gemini_model_name  : {cfg.gemini_model_name}")
+            print(f"  architect_provider : {cfg.architect_provider} ({cfg.architect_model})")
+            print(f"  coder_provider     : {cfg.coder_provider} ({cfg.coder_model})")
+            print(f"  reviewer_provider  : {cfg.reviewer_provider} ({cfg.reviewer_model})")
+            print(f"  reflector_provider : {cfg.reflector_provider} ({cfg.reflector_model})")
             print("  ─────────────────────────────────────\n")
 
 
@@ -198,24 +161,28 @@ else:  # pragma: no cover
     class ARKConfig:  # type: ignore[no-redef]
         """Minimal ARK configuration (pydantic-settings not available)."""
 
-        # --- LLM 基本設定 ---
-        model_name: str = "deepseek-coder-v2"
+        model_name: str = "qwen2.5-coder:7b"
         api_endpoint: str = "http://localhost:11434"
         workspace_path: Path = dataclasses.field(
             default_factory=lambda: _project_root() / "workspace"
         )
 
-        # --- エージェントごとのプロバイダー設定 ---
         architect_provider: str = "ollama"
         coder_provider: str = "ollama"
         reviewer_provider: str = "ollama"
+        reflector_provider: str = "ollama"
 
-        # --- Gemini 設定 ---
+        architect_model: str = "gemma3:4b"
+        coder_model: str = "qwen2.5-coder:7b"
+        reviewer_model: str = "llama3.2:3b"
+        reflector_model: str = "llama3.2:3b"
+
         gemini_api_key: str = ""
-        gemini_model_name: str = "gemini-1.5-flash"
-        architect_model: str = "gemini-1.5-pro"
-        coder_model: str = "gemini-1.5-flash"
-        reviewer_model: str = "gemini-1.5-flash"
+        gemini_model_name: str = "gemini-2.0-flash"
+        architect_model_gemini: str = "gemini-2.0-flash"
+        coder_model_gemini: str = "gemini-2.0-flash"
+        reviewer_model_gemini: str = "gemini-2.0-flash"
+        reflector_model_gemini: str = "gemini-2.0-flash"
 
         def __post_init__(self) -> None:
             self.workspace_path = Path(self.workspace_path).resolve()
@@ -224,7 +191,6 @@ else:  # pragma: no cover
     class ConfigLoader:  # type: ignore[no-redef]
         """Fallback ConfigLoader using only pyyaml + env-vars."""
 
-        _ENV_PREFIX = "ARK_"
         _FIELD_MAP: dict[str, str] = {
             "model_name":         "ARK_MODEL_NAME",
             "api_endpoint":       "ARK_API_ENDPOINT",
@@ -232,11 +198,17 @@ else:  # pragma: no cover
             "architect_provider": "ARK_ARCHITECT_PROVIDER",
             "coder_provider":     "ARK_CODER_PROVIDER",
             "reviewer_provider":  "ARK_REVIEWER_PROVIDER",
-            "gemini_api_key":     "ARK_GEMINI_API_KEY",
-            "gemini_model_name":  "ARK_GEMINI_MODEL_NAME",
+            "reflector_provider": "ARK_REFLECTOR_PROVIDER",
             "architect_model":    "ARK_ARCHITECT_MODEL",
             "coder_model":        "ARK_CODER_MODEL",
             "reviewer_model":     "ARK_REVIEWER_MODEL",
+            "reflector_model":    "ARK_REFLECTOR_MODEL",
+            "gemini_api_key":     "ARK_GEMINI_API_KEY",
+            "gemini_model_name":  "ARK_GEMINI_MODEL_NAME",
+            "architect_model_gemini": "ARK_ARCHITECT_MODEL_GEMINI",
+            "coder_model_gemini":     "ARK_CODER_MODEL_GEMINI",
+            "reviewer_model_gemini":  "ARK_REVIEWER_MODEL_GEMINI",
+            "reflector_model_gemini": "ARK_REFLECTOR_MODEL_GEMINI",
         }
 
         @staticmethod
@@ -248,7 +220,6 @@ else:  # pragma: no cover
                 with path.open("r", encoding="utf-8") as fh:
                     values = yaml.safe_load(fh) or {}
 
-            # env-var overrides
             for field, env_key in ConfigLoader._FIELD_MAP.items():
                 env_val = os.environ.get(env_key)
                 if env_val is not None:
@@ -258,13 +229,11 @@ else:  # pragma: no cover
 
         @staticmethod
         def display(cfg: ARKConfig) -> None:
-            print("\n⚙️   ARK Configuration")
+            print("\n⚙️   ARK Configuration (Fallback)")
             print("  ─────────────────────────────────────")
             print(f"  model_name         : {cfg.model_name}")
-            print(f"  api_endpoint       : {cfg.api_endpoint}")
-            print(f"  workspace_path     : {cfg.workspace_path}")
-            print(f"  architect_provider : {cfg.architect_provider}")
-            print(f"  coder_provider     : {cfg.coder_provider}")
-            print(f"  reviewer_provider  : {cfg.reviewer_provider}")
-            print(f"  gemini_model_name  : {cfg.gemini_model_name}")
+            print(f"  architect_provider : {cfg.architect_provider} ({cfg.architect_model})")
+            print(f"  coder_provider     : {cfg.coder_provider} ({cfg.coder_model})")
+            print(f"  reviewer_provider  : {cfg.reviewer_provider} ({cfg.reviewer_model})")
+            print(f"  reflector_provider : {cfg.reflector_provider} ({cfg.reflector_model})")
             print("  ─────────────────────────────────────\n")

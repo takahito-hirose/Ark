@@ -29,12 +29,19 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final, Callable, Protocol
+
+# 記憶システムとツールのインポート
+from src.memory import MemoryManager
+from src.tools import memory_tools
 from src.tools.terminal import TerminalOracle
 
 class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
 
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
+# 👇 新しいエージェントをインポート
+from src.agents.reflector import ReflectorAgent
+
 from src.core.config import ConfigLoader
 from src.core.factory import get_provider
 from src.core.models import (
@@ -81,10 +88,8 @@ STATE_FILENAME: Final[str] = ".ark_state.json"
 class CircuitBreakerTripped(RuntimeError):
     """Raised when MAX_RETRIES consecutive failures occur."""
 
-
 class OrchestratorBlocked(RuntimeError):
     """Raised when the orchestrator enters BLOCKED state."""
-
 
 # ---------------------------------------------------------------------------
 # Persistent State
@@ -104,8 +109,6 @@ class ARKState:
 
     def set_callback(self, callback: StatusCallback | None) -> None:
         self._on_status_change = callback
-
-    # ---- persistence -------------------------------------------------------
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,8 +132,6 @@ class ARKState:
         self.retry_count = data.get("retry_count", 0)
         self.history     = data.get("history", [])
 
-    # ---- helpers ------------------------------------------------------------
-
     def push_event(self, phase: Phase, status: str, detail: str = "") -> None:
         self.history.append({
             "phase":     phase.value,
@@ -150,11 +151,6 @@ class ARKState:
 
 
 # ---------------------------------------------------------------------------
-# (Mock SYLPH classes removed — replaced by src.agents layer)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -166,71 +162,70 @@ class Orchestrator:
     def __init__(
         self, 
         config_path: Path | None = None, 
-        workspace_path: str | Path | None = None, # 👈 引数を追加！
+        workspace_path: str | Path | None = None,
         on_status_change: StatusCallback | None = None
     ) -> None:
         # 1. コンフィグのロード
         self._cfg = ConfigLoader.load(config_path)
         
-        # 2. ワークスペースの決定（引数優先 > 設定ファイル > カレントディレクトリ）
+        # 2. ワークスペースの決定
         ws_input = workspace_path or self._cfg.workspace_path or "."
         self._workspace = Path(ws_input).resolve()
         
-        # 3. 状態管理の初期化（決定したワークスペースを使用）
+        # 3. 状態管理の初期化
         self._state = ARKState(self._workspace)
         if on_status_change:
             self._state.set_callback(on_status_change)
 
-        # 4. 各エージェントの初期化（新しいワークスペースを共有！）
+        # 🧠 4. 記憶システム（MemoryManager）の初期化と注入！
+        self._memory = MemoryManager(base_dir=self._workspace / ".ark_memory")
+        memory_tools.inject_memory_manager(self._memory)
+        log.info("🧠 Memory System initialized at %s", self._workspace / ".ark_memory")
+
+        # 🛠️ 記憶ツールのリスト
+        ark_tools = [
+            memory_tools.save_core_rule,
+            memory_tools.archive_experience,
+            memory_tools.recall_memory
+        ]
+
+        # 5. 各エージェントの初期化
         self._architect = ArchitectAgent(
             get_provider("architect", self._cfg), 
             workspace_path=self._workspace
         )
+        
+        # 👈 コーダーからはツールを外してコーディングに専念させる
         self._coder = CoderAgent(
             get_provider("coder", self._cfg), 
             workspace_path=self._workspace
         )
+        
         self._reviewer = ReviewerAgent(
             get_provider("reviewer", self._cfg), 
             workspace_path=self._workspace
         )
+
+        # 👈 新しい Reflector を初期化し、記憶ツールを装備させる
+        self._reflector = ReflectorAgent(
+            get_provider("reviewer", self._cfg), # Reviewerと同じプロバイダを流用
+            workspace_path=self._workspace,
+            tools=ark_tools
+        )
         
-        # 5. ツールの初期化
+        # 6. ツールの初期化
         self._runner = PythonRunner(timeout=30)
         self._terminal = TerminalOracle(workspace_path=self._workspace)
         self._git = GitTool(self._workspace)
 
         log.info(
-            "Orchestrator initialized — workspace: %s, providers: architect=%r coder=%r reviewer=%r",
-            self._workspace,
-            self._cfg.architect_provider,
-            self._cfg.coder_provider,
-            self._cfg.reviewer_provider,
+            "Orchestrator initialized — workspace: %s", self._workspace
         )
 
     # ------------------------------------------------------------------ run
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
-        """
-        Execute one full autonomous loop for *goal*.
-
-        Parameters
-        ----------
-        goal:
-            Natural-language description of what to build.
-        resume:
-            If True, attempt to resume from persisted state.
-
-        Returns
-        -------
-        Path
-            Workspace directory containing committed artefacts.
-
-        Raises
-        ------
-        CircuitBreakerTripped
-            When MAX_RETRIES consecutive failures occur.
-        """
+        """Execute one full autonomous loop for *goal*."""
         self._workspace.mkdir(parents=True, exist_ok=True)
 
         if resume:
@@ -240,6 +235,13 @@ class Orchestrator:
         else:
             self._state = ARKState(self._workspace)
             self._state.goal = goal
+
+        # 🧠 記憶の引き出し（ルールの合体）
+        core_rules = self._memory.load_core_rules_prompt()
+        if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
+            # ルールが存在する場合、ミッション(goal)の末尾に強制的にくっつける！
+            goal = f"{goal}\n\n{core_rules}"
+            log.info("🧠 コアルールをミッション（Goal）に注入しました！")
 
         log.info("=" * 60)
         log.info("🚀  ARK Autonomous Loop — task %s", self._state.task_id)
@@ -252,7 +254,6 @@ class Orchestrator:
 
         # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
         code_result: CodePayload | None = None
-
         last_review: ReviewPayload | None = None
         execution_feedback: str = ""
         attempt_history: list[ExecutionAttempt] = []
@@ -260,11 +261,10 @@ class Orchestrator:
         while self._state.retry_count < MAX_RETRIES:
             retry = self._state.retry_count
 
-            # CODING（前回のレビューフィードバック または 実行エラーを Coder に渡す）
+            # CODING
             self._state.transition(Phase.CODING)
             
             if execution_feedback:
-                # 実行エラーに基づく修正依頼
                 code_result = self._coder.remediate(
                     plan, 
                     retry,
@@ -274,30 +274,20 @@ class Orchestrator:
                     attempt_history=attempt_history
                 )
             elif last_review:
-                # レビューフィードバックに基づく修正依頼
                 code_result = self._phase_code(plan, retry, reviewer_feedback=last_review.summary)
             else:
-                # 初回または通常の継続
                 code_result = self._phase_code(plan, retry)
 
-            # -----------------------------------------------------------------
-            # RUNNING (Self-Healing / Dynamic Verification)
-            # -----------------------------------------------------------------
+            # RUNNING
             run_result = self._phase_run(code_result)
             if not run_result.success:
                 self._state.retry_count += 1
-                
-                # --- ここよ！このログが ARK の「根性」を可視化するわ！🚀✨ ---
                 retry_msg = f"[🔄 SELF-HEALING] Attempt {self._state.retry_count}/{MAX_RETRIES}"
                 print(f"\n{retry_msg}: Detecting issues and preparing fix...")
                 
-                self._state.push_event(
-                    Phase.CODING, "FAIL",
-                    f"{retry_msg} — Error: {run_result.stderr[:100]}"
-                )
+                self._state.push_event(Phase.CODING, "FAIL", f"{retry_msg} — Error: {run_result.stderr[:100]}")
                 self._state.save()
                 
-                # エラー内容を保存して次のループで修正させる
                 if code_result and code_result.files:
                     attempt_history.append(ExecutionAttempt(
                         code=code_result.files[0].content,
@@ -313,14 +303,11 @@ class Orchestrator:
                     break
                 continue
             
-            # 成功した場合はフィードバックをクリア
             execution_feedback = ""
 
-            # -----------------------------------------------------------------
             # REVIEWING
-            # -----------------------------------------------------------------
             self._state.transition(Phase.REVIEWING)
-            review = self._phase_review(code_result, retry)
+            review = self._phase_review(code_result, retry, plan)
             last_review = review
 
             if review.status == ReviewStatus.PASS:
@@ -329,12 +316,8 @@ class Orchestrator:
                 self._state.save()
                 break
 
-            # FAIL path
             self._state.retry_count += 1
-            self._state.push_event(
-                Phase.REVIEWING, "FAIL",
-                f"retry={self._state.retry_count} — {review.summary}",
-            )
+            self._state.push_event(Phase.REVIEWING, "FAIL", f"retry={self._state.retry_count} — {review.summary}")
             self._state.save()
 
             if self._state.retry_count >= MAX_RETRIES:
@@ -347,15 +330,19 @@ class Orchestrator:
                 log.error("🛑  %s", msg)
                 raise CircuitBreakerTripped(msg)
 
-            log.warning(
-                "⚠️   Review FAILED (score=%.2f) — retrying (%d/%d) …",
-                review.score, self._state.retry_count, MAX_RETRIES,
-            )
+            log.warning("⚠️   Review FAILED (score=%.2f) — retrying (%d/%d) …", review.score, self._state.retry_count, MAX_RETRIES)
 
         # ── PHASE 4: COMMIT ────────────────────────────────────────────────
         self._state.transition(Phase.COMMITTING)
         assert code_result is not None
         committed = self._phase_commit(code_result, plan.goal)
+
+        # ── ✨ NEW PHASE: REFLECT ──────────────────────────────────────────
+        # 最後に Reflector を呼び出して航海の記憶を刻む
+        log.info("[REFLECT] 振り返りフェーズ開始...")
+        self._reflector.reflect(plan, code_result)
+        self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge extraction complete.")
+        self._state.save()
 
         self._state.transition(Phase.DONE)
         log.info("🏛️  ARK loop complete — artefacts committed to: %s", self._workspace)
@@ -367,45 +354,32 @@ class Orchestrator:
         Envelope.new(Phase.PLANNING, goal, model_name=self._cfg.model_name)
         log.info("[PLAN]  Architect generating PlanPayload …")
         plan = self._architect.plan(goal, task_id=self._state.task_id)
-        self._state.push_event(Phase.PLANNING, "OK",
-                               f"target_files={plan.target_files}")
+        self._state.push_event(Phase.PLANNING, "OK", f"target_files={plan.target_files}")
         self._state.save()
         return plan
 
-    def _phase_code(
-        self,
-        plan: PlanPayload,
-        retry: int,
-        reviewer_feedback: str = "",
-    ) -> CodePayload:
+    def _phase_code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
         log.info("[CODE]  Coder synthesising code (retry=%d) …", retry)
         code = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback)
-        self._state.push_event(Phase.CODING, "OK",
-                               f"files={[f.path for f in code.files]}")
+        self._state.push_event(Phase.CODING, "OK", f"files={[f.path for f in code.files]}")
         self._state.save()
         return code
 
-    def _phase_review(self, code: CodePayload, retry: int) -> ReviewPayload:
+    def _phase_review(self, code: CodePayload, retry: int, plan: PlanPayload) -> ReviewPayload:
         log.info("[REVIEW] Reviewer auditing output …")
-        review = self._reviewer.review(code, retry)
+        review = self._reviewer.review(code, retry, plan=plan)
         return review
 
     def _phase_run(self, code: CodePayload) -> RunResult:
         log.info("[RUN]  Terminal Oracle executing code for verification …")
-        
-        # 👈 ステップ0: 実行前に「今生成されたばかりのコード」を一時的に保存するわよ！
-        # これをやらないと、さっきみたいに「過去の亡霊」が動いちゃうの💋
         for fc in code.files:
             safe_path = self._workspace / Path(fc.path).name
             safe_path.write_text(fc.content, encoding="utf-8")
         
-        # 👈 ステップ1: もし新しい requirements.txt があれば、実行前にインストール！
-        # これで検証段階でも ModuleNotFoundError が出なくなるわ✨
         if any(f.path.endswith("requirements.txt") for f in code.files):
             log.info("[RUN] 新しい依存関係を検知！検証前にインストールしちゃうわよ💋")
             self._terminal.execute_command("pip install -r requirements.txt")
 
-        # ステップ2: Pythonファイルを探して実行
         main_file = next((f.path for f in code.files if f.path.endswith(".py")), None)
         if not main_file:
             return RunResult(exit_code=-1, stdout="", stderr="No python file found", duration=0)
@@ -422,8 +396,6 @@ class Orchestrator:
         return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
     
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
-        """Write all generated files into workspace/ and perform Git operations."""
-        # 1. Cleanup temporary verification files
         log.info("[COMMIT] Cleaning up temporary files...")
         for temp_file in self._workspace.glob("_verify_*.py"):
             try:
@@ -432,7 +404,6 @@ class Orchestrator:
             except Exception as e:
                 log.warning("Failed to delete temp file %s: %s", temp_file, e)
 
-        # 2. Write files to workspace
         committed: list[Path] = []
         for fc in code.files:
             file_path = Path(fc.path)
@@ -456,35 +427,24 @@ class Orchestrator:
                 safe_path.write_text(fc.content, encoding="utf-8")
                 committed.append(safe_path)
                 log.info("[COMMIT] Written %s (%d bytes)", safe_path, len(fc.content))
-        # ── 2.5 依存関係のセットアップ (New! 🚀) ──────────────────────
-        # 書き出されたファイルの中に requirements.txt があるかチェック
+                
         req_path = self._workspace / "requirements.txt"
         if req_path.exists():
             log.info("[SETUP] requirements.txt を発見！依存ライブラリをインストールするわ💋")
-            # さっき作った Terminal Oracle に丸投げよ！
             install_res = self._terminal.execute_command("pip install -r requirements.txt")
-            
             if install_res.success:
                 log.info("✅ 依存ライブラリの準備完了！完璧よジェニー！")
             else:
                 log.warning("⚠️ インストールで少し手こずったみたい。エラー：\n%s", install_res.stderr)
-        # ────────────────────────────────────────────────────────────
 
-        # 3. Git Operations
         try:
-            # Topic Branch
             branch_name = self._git.create_topic_branch(self._state.task_id)
-            
-            # Generate Commit Message
             log.info("[COMMIT] Generating commit message via LLM...")
             prompt = build_commit_msg_prompt(goal, [f"{f.path}" for f in code.files])
-            # Coder エージェント（または直接 Provider）を使ってメッセージ生成
             raw_msg = self._coder._call_llm(prompt)
-            commit_message = raw_msg.strip().split("\n")[0] # 最初の1行のみ使用
+            commit_message = raw_msg.strip().split("\n")[0]
             
-            # Commit
             if self._git.commit(commit_message):
-                # Push
                 try:
                     self._git.push(branch_name)
                 except Exception as e:
@@ -497,10 +457,7 @@ class Orchestrator:
             log.error("❌ Git failed: %s", e)
             log.warning("Proceeding without Git operations.")
 
-        self._state.push_event(
-            Phase.COMMITTING, "OK",
-            f"committed={[str(p) for p in committed]}",
-        )
+        self._state.push_event(Phase.COMMITTING, "OK", f"committed={[str(p) for p in committed]}")
         self._state.save()
         return committed
 
@@ -522,7 +479,6 @@ def main(argv: list[str] | None = None) -> int:
         log.critical("Loop halted: %s", exc)
         return 1
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
