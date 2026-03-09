@@ -1,27 +1,17 @@
 """
-ARK (Autonomous Resilient Kernel) — Core Orchestrator
-======================================================
-Implements the autonomous PLAN → CODE → REVIEW → COMMIT loop.
+ARK (Autonomous Resilient Kernel) — Core Orchestrator (The Dock Edition)
+=======================================================================
+新たなプロジェクト（探査船）を動的に生成し、GitHub リポジトリを自動造船する
+『The Dock』機能を搭載したオーケストレーター。
 
-Conforms to: specs/core_logic.md
-State is persisted to workspace/.ark_state.json for crash resilience.
-
-Usage
------
-::
-
-    python -m src.core.orchestrator "Create a hello-world Flask app"
-
-    # or from Python
-    from src.core.orchestrator import Orchestrator
-    orc = Orchestrator()
-    orc.run("Create a hello-world Flask app")
+Conforms to: specs/phase5_roadmap.md
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import textwrap
 import time
@@ -29,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final, Callable, Protocol
+from dotenv import load_dotenv
 
 # 記憶システムとツールのインポート
 from src.memory import MemoryManager
@@ -39,7 +30,6 @@ class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
 
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
-# 👇 新しいエージェントをインポート
 from src.agents.reflector import ReflectorAgent
 
 from src.core.config import ConfigLoader
@@ -80,24 +70,14 @@ log = logging.getLogger("ARK.Orchestrator")
 MAX_RETRIES: Final[int] = 3
 STATE_FILENAME: Final[str] = ".ark_state.json"
 
-
-# ---------------------------------------------------------------------------
-# Custom exceptions
-# ---------------------------------------------------------------------------
-
-class CircuitBreakerTripped(RuntimeError):
-    """Raised when MAX_RETRIES consecutive failures occur."""
-
-class OrchestratorBlocked(RuntimeError):
-    """Raised when the orchestrator enters BLOCKED state."""
+class CircuitBreakerTripped(RuntimeError): pass
+class OrchestratorBlocked(RuntimeError): pass
 
 # ---------------------------------------------------------------------------
 # Persistent State
 # ---------------------------------------------------------------------------
 
 class ARKState:
-    """Serialisable orchestrator state backed by workspace/.ark_state.json."""
-
     def __init__(self, workspace: Path) -> None:
         self._path: Path = workspace / STATE_FILENAME
         self.task_id:    str   = str(uuid.uuid4())
@@ -123,8 +103,7 @@ class ARKState:
         self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load(self) -> None:
-        if not self._path.exists():
-            return
+        if not self._path.exists(): return
         data: dict = json.loads(self._path.read_text(encoding="utf-8"))
         self.task_id     = data.get("task_id", self.task_id)
         self.phase       = Phase(data.get("phase", Phase.IDLE.value))
@@ -149,108 +128,97 @@ class ARKState:
         if self._on_status_change:
             self._on_status_change(phase, "TRANSITION", self.retry_count, f"Moving to {phase.value}")
 
-
 # ---------------------------------------------------------------------------
-# Orchestrator
+# Orchestrator (The Dock Edition)
 # ---------------------------------------------------------------------------
 
 class Orchestrator:
-    """
-    Main autonomous loop controller.
-    """
-
     def __init__(
         self, 
         config_path: Path | None = None, 
         workspace_path: str | Path | None = None,
         on_status_change: StatusCallback | None = None
     ) -> None:
-        # 1. コンフィグのロード
         self._cfg = ConfigLoader.load(config_path)
         
-        # 2. ワークスペースの決定
+        # 💡 [The Dock] 母艦のベースワークスペースを決定
         ws_input = workspace_path or self._cfg.workspace_path or "."
-        self._workspace = Path(ws_input).resolve()
+        self._base_workspace = Path(ws_input).resolve()
         
-        # 3. 状態管理の初期化
-        self._state = ARKState(self._workspace)
+        # 初期状態ではベースを操作対象とする
+        self._workspace = self._base_workspace
+        
+        # 状態管理（状態は母艦直下に置く）
+        self._state = ARKState(self._base_workspace)
         if on_status_change:
             self._state.set_callback(on_status_change)
 
-        # 🧠 4. 記憶システム（MemoryManager）の初期化と注入！
-        self._memory = MemoryManager(base_dir=self._workspace / ".ark_memory")
+        # 🧠 記憶システム（母艦 ARK の中枢図書館）
+        self._memory = MemoryManager(base_dir=self._base_workspace / ".ark_memory")
         memory_tools.inject_memory_manager(self._memory)
-        log.info("🧠 Memory System initialized at %s", self._workspace / ".ark_memory")
+        log.info("🧠 Memory System initialized at %s", self._base_workspace / ".ark_memory")
 
-        # 🛠️ 記憶ツールのリスト
         ark_tools = [
             memory_tools.save_core_rule,
             memory_tools.archive_experience,
             memory_tools.recall_memory
         ]
 
-        # 5. 各エージェントの初期化
-        self._architect = ArchitectAgent(
-            get_provider("architect", self._cfg), 
-            workspace_path=self._workspace
-        )
+        # エージェントの初期化
+        # 💡 内部のパスは母艦ベースで初期化し、生成物は各ドックへ向ける
+        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace)
+        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace)
+        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace)
+        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=ark_tools)
         
-        # 👈 コーダーからはツールを外してコーディングに専念させる
-        self._coder = CoderAgent(
-            get_provider("coder", self._cfg), 
-            workspace_path=self._workspace
-        )
-        
-        self._reviewer = ReviewerAgent(
-            get_provider("reviewer", self._cfg), 
-            workspace_path=self._workspace
-        )
-
-        # 👈 新しい Reflector を初期化し、記憶ツールを装備させる
-        self._reflector = ReflectorAgent(
-            get_provider("reviewer", self._cfg), # Reviewerと同じプロバイダを流用
-            workspace_path=self._workspace,
-            tools=ark_tools
-        )
-        
-        # 6. ツールの初期化
-        self._runner = PythonRunner(timeout=30)
-        self._terminal = TerminalOracle(workspace_path=self._workspace)
-        self._git = GitTool(self._workspace)
-
-        log.info(
-            "Orchestrator initialized — workspace: %s", self._workspace
-        )
-
-    # ------------------------------------------------------------------ run
+        # ツール類（run 時に再設定される）
+        self._terminal = TerminalOracle(workspace_path=self._base_workspace)
+        self._git: GitTool | None = None 
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
-        """Execute one full autonomous loop for *goal*."""
-        self._workspace.mkdir(parents=True, exist_ok=True)
+        self._base_workspace.mkdir(parents=True, exist_ok=True)
 
         if resume:
             self._state.load()
-            log.info("Resuming from phase: %s (retry=%d)",
-                     self._state.phase.value, self._state.retry_count)
         else:
-            self._state = ARKState(self._workspace)
+            self._state = ARKState(self._base_workspace)
             self._state.goal = goal
 
         # 🧠 記憶の引き出し（ルールの合体）
         core_rules = self._memory.load_core_rules_prompt()
         if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
-            # ルールが存在する場合、ミッション(goal)の末尾に強制的にくっつける！
             goal = f"{goal}\n\n{core_rules}"
             log.info("🧠 コアルールをミッション（Goal）に注入しました！")
 
         log.info("=" * 60)
-        log.info("🚀  ARK Autonomous Loop — task %s", self._state.task_id)
+        log.info("🚀  ARK Autonomous Loop (The Dock Edition) — task %s", self._state.task_id)
         log.info("    GOAL: %s", goal)
         log.info("=" * 60)
 
         # ── PHASE 1: PLANNING ─────────────────────────────────────────────
         self._state.transition(Phase.PLANNING)
         plan = self._phase_plan(goal)
+
+        # 🏗️ [The Dock] プロジェクトディレクトリ（造船ドック）の動的生成
+        # Architect が project_name を決めていない場合は、task_id から生成
+        project_id = getattr(plan, 'project_name', f"ark-project-{self._state.task_id[:8]}")
+        self._workspace = self._base_workspace / project_id
+        self._workspace.mkdir(parents=True, exist_ok=True)
+        
+        log.info("🏗️  Welcome to The Dock: %s", self._workspace)
+        
+        # GitTool と TerminalOracle をこのプロジェクトドック専用に初期化
+        self._git = GitTool(self._workspace)
+        self._terminal = TerminalOracle(workspace_path=self._workspace)
+
+        # GitHub リポジトリの自動造船
+        if not resume and os.getenv("GITHUB_TOKEN"):
+            repo_url = self._git.create_remote_repo(
+                name=project_id,
+                description=f"ARK Generated Project: {plan.goal[:50]}..."
+            )
+            if repo_url:
+                self._git.setup_dock(repo_url)
 
         # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
         code_result: CodePayload | None = None
@@ -260,47 +228,28 @@ class Orchestrator:
 
         while self._state.retry_count < MAX_RETRIES:
             retry = self._state.retry_count
-
-            # CODING
             self._state.transition(Phase.CODING)
             
             if execution_feedback:
-                code_result = self._coder.remediate(
-                    plan, 
-                    retry,
-                    failure_reason="Runtime Error",
-                    stacktrace=execution_feedback,
-                    current_source=code_result.files[0].content if code_result and code_result.files else "",
-                    attempt_history=attempt_history
-                )
+                code_result = self._coder.remediate(plan, retry, failure_reason="Runtime Error", stacktrace=execution_feedback, current_source=code_result.files[0].content if code_result and code_result.files else "", attempt_history=attempt_history)
             elif last_review:
                 code_result = self._phase_code(plan, retry, reviewer_feedback=last_review.summary)
             else:
                 code_result = self._phase_code(plan, retry)
 
-            # RUNNING
+            # RUNNING (ドック内で実行)
             run_result = self._phase_run(code_result)
             if not run_result.success:
                 self._state.retry_count += 1
                 retry_msg = f"[🔄 SELF-HEALING] Attempt {self._state.retry_count}/{MAX_RETRIES}"
-                print(f"\n{retry_msg}: Detecting issues and preparing fix...")
-                
                 self._state.push_event(Phase.CODING, "FAIL", f"{retry_msg} — Error: {run_result.stderr[:100]}")
                 self._state.save()
                 
                 if code_result and code_result.files:
-                    attempt_history.append(ExecutionAttempt(
-                        code=code_result.files[0].content,
-                        error=run_result.stderr,
-                        attempt_number=self._state.retry_count
-                    ))
+                    attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=run_result.stderr, attempt_number=self._state.retry_count))
                 
                 execution_feedback = run_result.stderr
-                log.warning(f"⚠️  {retry_msg}: Execution failed. Feeding back to Coder...")
-                
-                if self._state.retry_count >= MAX_RETRIES:
-                    log.error(f"🚨 Max retries reached ({MAX_RETRIES}). ARK couldn't fix it this time...💔")
-                    break
+                if self._state.retry_count >= MAX_RETRIES: break
                 continue
             
             execution_feedback = ""
@@ -317,49 +266,44 @@ class Orchestrator:
                 break
 
             self._state.retry_count += 1
-            self._state.push_event(Phase.REVIEWING, "FAIL", f"retry={self._state.retry_count} — {review.summary}")
             self._state.save()
 
             if self._state.retry_count >= MAX_RETRIES:
                 self._state.transition(Phase.BLOCKED)
-                msg = (
-                    f"Circuit Breaker tripped after {MAX_RETRIES} consecutive failures.\n"
-                    f"Last review summary: {review.summary}\n"
-                    "Human intervention required."
-                )
-                log.error("🛑  %s", msg)
-                raise CircuitBreakerTripped(msg)
+                raise CircuitBreakerTripped("Circuit Breaker tripped.")
 
-            log.warning("⚠️   Review FAILED (score=%.2f) — retrying (%d/%d) …", review.score, self._state.retry_count, MAX_RETRIES)
-
-        # ── PHASE 4: COMMIT ────────────────────────────────────────────────
+        # ── PHASE 4: COMMIT & PUSH (造船完了と射出) ──────────────────────────
         self._state.transition(Phase.COMMITTING)
         assert code_result is not None
         committed = self._phase_commit(code_result, plan.goal)
 
-        # ── ✨ NEW PHASE: REFLECT ──────────────────────────────────────────
-        # 最後に Reflector を呼び出して航海の記憶を刻む
+        # 🚀 GitHub へプッシュ！
+        if self._git and os.getenv("GITHUB_TOKEN"):
+            log.info("[THE DOCK] Launching probe ship to GitHub...")
+            branch_name = self._git.create_topic_branch(self._state.task_id)
+            self._git.push(branch_name)
+
+        # ── PHASE 5: REFLECT ──────────────────────────────────────────────
         log.info("[REFLECT] 振り返りフェーズ開始...")
         self._reflector.reflect(plan, code_result)
-        self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge extraction complete.")
+        self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge archived.")
         self._state.save()
 
         self._state.transition(Phase.DONE)
-        log.info("🏛️  ARK loop complete — artefacts committed to: %s", self._workspace)
+        log.info("🏛️  ARK loop complete — Probe ship launched from The Dock: %s", self._workspace)
         return self._workspace
 
     # --------------------------------------------------------- phase methods
 
     def _phase_plan(self, goal: str) -> PlanPayload:
-        Envelope.new(Phase.PLANNING, goal, model_name=self._cfg.model_name)
         log.info("[PLAN]  Architect generating PlanPayload …")
         plan = self._architect.plan(goal, task_id=self._state.task_id)
-        self._state.push_event(Phase.PLANNING, "OK", f"target_files={plan.target_files}")
+        self._state.push_event(Phase.PLANNING, "OK", f"project={getattr(plan, 'project_name', 'default')}")
         self._state.save()
         return plan
 
     def _phase_code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
-        log.info("[CODE]  Coder synthesising code (retry=%d) …", retry)
+        log.info("[CODE]  Coder synthesising code …")
         code = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback)
         self._state.push_event(Phase.CODING, "OK", f"files={[f.path for f in code.files]}")
         self._state.save()
@@ -371,13 +315,13 @@ class Orchestrator:
         return review
 
     def _phase_run(self, code: CodePayload) -> RunResult:
-        log.info("[RUN]  Terminal Oracle executing code for verification …")
+        log.info("[RUN]  Terminal Oracle executing code within The Dock …")
         for fc in code.files:
+            # 💡 ファイル名はフラットにドック直下に展開
             safe_path = self._workspace / Path(fc.path).name
             safe_path.write_text(fc.content, encoding="utf-8")
         
         if any(f.path.endswith("requirements.txt") for f in code.files):
-            log.info("[RUN] 新しい依存関係を検知！検証前にインストールしちゃうわよ💋")
             self._terminal.execute_command("pip install -r requirements.txt")
 
         main_file = next((f.path for f in code.files if f.path.endswith(".py")), None)
@@ -388,95 +332,40 @@ class Orchestrator:
         result = self._terminal.execute_command(f"python {script_name}")
         
         if result.success:
-            log.info("✅  Execution SUCCESS")
             print(f"\n--- 🚀 ARK EXECUTION OUTPUT ---\n{result.stdout}\n------------------------------\n")
-        else:
-            log.error("❌  Execution FAILED (exit=%d)", result.exit_code)
-            
         return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
     
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
-        log.info("[COMMIT] Cleaning up temporary files...")
-        for temp_file in self._workspace.glob("_verify_*.py"):
-            try:
-                temp_file.unlink()
-                log.debug("Deleted temp file: %s", temp_file)
-            except Exception as e:
-                log.warning("Failed to delete temp file %s: %s", temp_file, e)
-
+        log.info("[COMMIT] Writing final artifacts to The Dock...")
         committed: list[Path] = []
         for fc in code.files:
-            file_path = Path(fc.path)
-            if file_path.parts[0] == self._workspace.name:
-                safe_path = self._workspace.joinpath(*file_path.parts[1:])
-            else:
-                safe_path = self._workspace / file_path
-
-            try:
-                safe_path.resolve().relative_to(self._workspace.resolve())
-            except ValueError:
-                log.error("🚫  Sandbox violation blocked: %s", fc.path)
-                continue
-
-            if fc.action == FileAction.DELETE:
-                if safe_path.exists():
-                    safe_path.unlink()
-                    log.info("[COMMIT] Deleted %s", safe_path)
-            else:
-                safe_path.parent.mkdir(parents=True, exist_ok=True)
-                safe_path.write_text(fc.content, encoding="utf-8")
-                committed.append(safe_path)
-                log.info("[COMMIT] Written %s (%d bytes)", safe_path, len(fc.content))
+            safe_path = self._workspace / Path(fc.path).name
+            safe_path.write_text(fc.content, encoding="utf-8")
+            committed.append(safe_path)
                 
-        req_path = self._workspace / "requirements.txt"
-        if req_path.exists():
-            log.info("[SETUP] requirements.txt を発見！依存ライブラリをインストールするわ💋")
-            install_res = self._terminal.execute_command("pip install -r requirements.txt")
-            if install_res.success:
-                log.info("✅ 依存ライブラリの準備完了！完璧よジェニー！")
-            else:
-                log.warning("⚠️ インストールで少し手こずったみたい。エラー：\n%s", install_res.stderr)
-
         try:
-            branch_name = self._git.create_topic_branch(self._state.task_id)
-            log.info("[COMMIT] Generating commit message via LLM...")
-            prompt = build_commit_msg_prompt(goal, [f"{f.path}" for f in code.files])
-            raw_msg = self._coder._call_llm(prompt)
-            commit_message = raw_msg.strip().split("\n")[0]
-            
-            if self._git.commit(commit_message):
-                try:
-                    self._git.push(branch_name)
-                except Exception as e:
-                    log.error("❌ Push failed (conflict?): %s", e)
-                    log.warning("Skipping push but commit remains in local branch %s", branch_name)
-            else:
-                log.info("No changes to commit. Skiping Git flow.")
-
+            prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
+            commit_message = self._coder._call_llm(prompt).strip().split("\n")[0]
+            if self._git:
+                self._git.commit(commit_message)
         except Exception as e:
-            log.error("❌ Git failed: %s", e)
-            log.warning("Proceeding without Git operations.")
+            log.error("Commit failed: %s", e)
 
         self._state.push_event(Phase.COMMITTING, "OK", f"committed={[str(p) for p in committed]}")
         self._state.save()
         return committed
 
-
-# ---------------------------------------------------------------------------
-# CLI entry-point
-# ---------------------------------------------------------------------------
-
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
+    
     if argv is None:
         argv = sys.argv[1:]
-
     goal = " ".join(argv) if argv else "Hello World Pythonスクリプトを生成せよ"
-
     orc = Orchestrator()
     try:
         orc.run(goal)
-    except CircuitBreakerTripped as exc:
-        log.critical("Loop halted: %s", exc)
+    except Exception as e:
+        log.critical("Orchestrator failed: %s", e)
         return 1
     return 0
 
