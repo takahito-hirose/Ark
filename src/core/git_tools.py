@@ -70,10 +70,16 @@ class GitTool:
             if response.status_code == 201:
                 repo_data = response.json()
                 log.info("✅ GitHub repository created: %s", repo_data.get("html_url"))
-                # SSH URL または HTTPS URL を返す（今回は HTTPS を優先）
                 return repo_data.get("clone_url")
             elif response.status_code == 422:
-                log.warning("⚠️ Repository '%s' already exists on GitHub.", name)
+                log.warning("⚠️ Repository '%s' already exists. Fetching its URL...", name)
+                # 👈 既存なら、ユーザー情報を取得してURLを推測・再構築するわ！
+                user_res = requests.get("https://api.github.com/user", headers=headers)
+                if user_res.status_code == 200:
+                    username = user_res.json().get("login")
+                    clone_url = f"https://github.com/{username}/{name}.git"
+                    log.info("✅ Reusing existing repository: %s", clone_url)
+                    return clone_url
                 return None
             else:
                 log.error("❌ GitHub API Error (%d): %s", response.status_code, response.text)

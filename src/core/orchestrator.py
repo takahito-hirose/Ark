@@ -148,6 +148,9 @@ class Orchestrator:
         # 初期状態ではベースを操作対象とする
         self._workspace = self._base_workspace
         
+        # 💡 [追加] コールバック関数をクラス全体で覚えておく！
+        self._on_status_change = on_status_change
+        
         # 状態管理（状態は母艦直下に置く）
         self._state = ARKState(self._base_workspace)
         if on_status_change:
@@ -183,6 +186,9 @@ class Orchestrator:
         else:
             self._state = ARKState(self._base_workspace)
             self._state.goal = goal
+            # 💡 [追加] 状態を作り直した時に、通信ケーブルも繋ぎ直す！💋
+            if hasattr(self, '_on_status_change') and self._on_status_change:
+                self._state.set_callback(self._on_status_change)
 
         # 🧠 記憶の引き出し（ルールの合体）
         core_rules = self._memory.load_core_rules_prompt()
