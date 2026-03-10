@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARK: Dynamic Insight UI</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        h1 {
+            color: #58a6ff;
+            text-shadow: 0 0 10px rgba(88, 166, 255, 0.5);
+            margin-bottom: 10px;
+        }
+        .control-panel {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 10px;
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #2ea043; }
+        
+        .terminal {
+            flex-grow: 1;
+            background-color: #010409;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 15px;
+            overflow-y: auto;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+        .log-entry { margin-bottom: 8px; line-height: 1.4; border-bottom: 1px solid #21262d; padding-bottom: 4px; }
+        .log-time { color: #8b949e; font-size: 0.9em; margin-right: 10px; }
+        .log-phase { color: #d2a8ff; font-weight: bold; margin-right: 10px; }
+        .log-status { color: #3fb950; font-weight: bold; margin-right: 10px; }
+        .status-FAIL { color: #f85149; }
+        .status-TRANSITION { color: #58a6ff; }
+        
+        /* ネオンエフェクト */
+        .neon-text {
+            color: #fff;
+            text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de, 0 0 30px #ff00de, 0 0 40px #ff00de;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🚢 ARK: The Dock Control Center <span id="ws-status" style="color: #f85149; font-size: 0.5em;">● Disconnected</span></h1>
+    
+    <div class="control-panel">
+        <input type="text" id="goalInput" placeholder="ARKに下す造船ミッションを入力してね💋 (例: ReactでTodoアプリ作って！)">
+        <button onclick="launchMission()">Launch Mission 🚀</button>
+    </div>
+
+    <div class="terminal" id="terminal">
+        <div style="color: #8b949e; font-style: italic;">Awaiting neuro-link connection...</div>
+    </div>
+
+    <script>
+        const terminal = document.getElementById('terminal');
+        const wsStatus = document.getElementById('ws-status');
+        let ws;
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws/logs');
+
+            ws.onopen = () => {
+                wsStatus.style.color = '#3fb950';
+                wsStatus.textContent = '● Connected';
+                appendLog('SYSTEM', 'OK', 'Neuro-Link Established. Ready for commands.');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'ARK_EVENT') {
+                    appendLog(data.phase, data.status, data.detail);
+                }
+            };
+
+            ws.onclose = () => {
+                wsStatus.style.color = '#f85149';
+                wsStatus.textContent = '● Disconnected';
+                setTimeout(connectWebSocket, 3000); // 自動再接続
+            };
+        }
+
+        function appendLog(phase, status, detail) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const time = new Date().toLocaleTimeString();
+            const statusClass = status === 'FAIL' ? 'status-FAIL' : (status === 'TRANSITION' ? 'status-TRANSITION' : '');
+            
+            entry.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-phase">[${phase}]</span>
+                <span class="log-status ${statusClass}">${status}</span>
+                <span>${detail}</span>
+            `;
+            
+            terminal.appendChild(entry);
+            terminal.scrollTop = terminal.scrollHeight; // 自動スクロール
+        }
+
+        async function launchMission() {
+            const goal = document.getElementById('goalInput').value;
+            if (!goal) return;
+
+            appendLog('SYSTEM', 'SEND', `Deploying mission: ${goal}`);
+            document.getElementById('goalInput').value = ''; // クリア
+
+            try {
+                const response = await fetch('http://localhost:8000/mission', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ goal: goal })
+                });
+                const result = await response.json();
+                appendLog('SYSTEM', 'ACK', result.message);
+            } catch (error) {
+                appendLog('SYSTEM', 'FAIL', 'Failed to reach ARK API Server.');
+            }
+        }
+
+        // 起動時にWebSocket接続開始
+        connectWebSocket();
+    </script>
+</body>
+</html>
