@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* --- THEME VARIABLES (カラーパレットの調整) --- */
+@theme {
+  /* 参考画像に合わせて、より深く暗い色調に変更 */
+  --color-cabin-dark: #0a0503; /* ほぼ黒に近い焦げ茶 */
+  --color-cabin-wood: #1a1109; /* 深いダークオーク */
+  --color-brass: #c49a45;      /* 少し彩度を落とした渋い真鍮 */
+  --color-brass-highlight: #ffe8a0; /* 真鍮のハイライト色 */
+  --color-neon-cyan: #8be9fd;
+  
+  --color-brass-rgb: 196, 154, 69;
+  --color-neon-cyan-rgb: 139, 233, 253;
+}
+
+/* --- BASE STYLES --- */
+:root {
+  --background: #010409;
+  --foreground: #c9d1d9;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Courier New', Courier, monospace;
+  overflow: hidden;
+  margin: 0;
+}
+
+/* --- MATERIAL SHADERS (質感の定義) --- */
+
+/* 1. 重厚なダークオークの木目 */
+.wood-grain-heavy {
+  /* 複数のグラデーションを重ねて、深い奥行きと古びた質感を出す */
+  background: 
+    radial-gradient(circle at 50% 0%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.8) 100%), /* 全体の陰影 */
+    linear-gradient(180deg, var(--color-cabin-wood) 0%, #2a1d12 40%, #150d07 100%); /* 木の色 */
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.95); /* 強い内側の影 */
+  position: relative;
+}
+
+/* 木目のノイズテクスチャ（既存のものを流用） */
+.wood-texture::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noiseFilter)' opacity='0.12'/%3E%3C/svg%3E");
+  opacity: 0.4; /* ノイズを少し強めに */
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* 2. 真鍮の縁取り（モールディング）- 金属光沢の表現 */
+.brass-molding {
+  /* 金属特有の鋭い反射光をグラデーションで表現 */
+  background: linear-gradient(
+    90deg, 
+    #8a6d1d 0%, 
+    var(--color-brass) 20%, 
+    var(--color-brass-highlight) 50%, /* ハイライト */
+    var(--color-brass) 80%, 
+    #8a6d1d 100%
+  );
+  box-shadow: 
+    0 1px 2px rgba(0,0,0,0.8), /* 外側の影 */
+    inset 0 1px 1px rgba(255,255,255,0.3), /* 上端のハイライト */
+    inset 0 -1px 2px rgba(0,0,0,0.5); /* 下端の影 */
+}
+
+/* 縦方向の真鍮フレーム用 */
+.brass-molding-vertical {
+  background: linear-gradient(
+    180deg, 
+    #8a6d1d 0%, 
+    var(--color-brass) 30%, 
+    var(--color-brass-highlight) 60%, 
+    #8a6d1d 100%
+  );
+  box-shadow: inset 1px 0 1px rgba(255,255,255,0.3), inset -1px 0 2px rgba(0,0,0,0.5);
+}
+
+/* 3. 真鍮のリベット（鋲）- より立体的に進化！ */
+.rivet-heavy {
+  position: absolute;
+  width: 14px; /* 少し大きく */
+  height: 14px;
+  /* 球体のような立体感を出す放射状グラデーション */
+  background: radial-gradient(
+    circle at 30% 30%, 
+    var(--color-brass-highlight), 
+    var(--color-brass) 50%, 
+    #5a4210 95%
+  );
+  border-radius: 50%;
+  /* 鋭いハイライトと、深いドロップシャドウで「埋め込まれてる感」を出す */
+  box-shadow: 
+    inset 1px 1px 2px rgba(255,255,255,0.5), 
+    2px 2px 4px rgba(0,0,0,0.9);
+  z-index: 40;
+}
+
+/* --- UTILS --- */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+::-webkit-scrollbar-thumb { background: var(--color-neon-cyan); }
