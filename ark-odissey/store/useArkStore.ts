@@ -10,7 +10,7 @@ export interface LogEntry {
 
 interface ArkState {
   logs: LogEntry[]; // 文字列の配列から、オブジェクトの配列に変更
-  phase: 'IDLE' | 'PLAN' | 'CODE' | 'RUN' | 'REVIEW';
+  phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'DONE';
   isThinking: boolean;
   goldCoins: number;
   mode: 'ECO' | 'RICH';

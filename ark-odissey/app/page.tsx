@@ -11,7 +11,8 @@ import { useArkStore } from '../store/useArkStore';
  * サイバーパンクなホログラムUIを構築するわよ！💋
  */
 export default function Home() {
-  const { isThinking, logs, goldCoins, setThinking, addLog, spendCoins } = useArkStore();
+  // 💖 ノアぴの追加ポイント: phase と setPhase をストアから取得！
+  const { phase, isThinking, logs, goldCoins, setPhase, setThinking, addLog, spendCoins } = useArkStore();
   const [command, setCommand] = useState('');
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -20,7 +21,82 @@ export default function Home() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // 💖 ノアぴの非同期通信アップデート！
+  // 🌟 NEW: Neuro-Link (WebSocket) 接続用フック！
+  useEffect(() => {
+    let ws: WebSocket;
+    let reconnectTimer: NodeJS.Timeout;
+
+    const connectWebSocket = () => {
+      // Python側のWebSocketエンドポイントに接続！
+      ws = new WebSocket('ws://127.0.0.1:8000/ws/logs');
+
+      ws.onopen = () => {
+        addLog({
+          timestamp: new Date().toISOString(),
+          agent: 'SYSTEM',
+          message: 'Neuro-Link (WebSocket) Connection Established. 🧠✨',
+          level: 'success'
+        });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // バックエンドからの生きたログ（思考プロセス）をUIに流し込む！
+          if (data.type === 'ARK_EVENT') {
+            const phaseTag = data.phase ? `[${data.phase}] ` : '';
+            const detail = data.detail ? ` - ${data.detail}` : '';
+            
+            addLog({
+              timestamp: new Date().toISOString(),
+              agent: 'ARK',
+              message: `${phaseTag}${data.status}${detail}`,
+              // リトライが発生してたらエラー色で目立たせる工夫よ💋
+              level: data.retry_count > 0 ? 'error' : 'info'
+            });
+
+            // 💖 ノアぴの追加ポイント: フェーズが送られてきたらストアを更新！
+            if (data.phase) {
+              setPhase(data.phase.toUpperCase() as any);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      ws.onclose = () => {
+        addLog({
+          timestamp: new Date().toISOString(),
+          agent: 'SYSTEM',
+          message: 'Neuro-Link Disconnected. Attempting to reconnect in 3s...',
+          level: 'error'
+        });
+        // 切断されたら3秒後に再接続！
+        reconnectTimer = setTimeout(connectWebSocket, 3000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket encountered an error:', error);
+      };
+    };
+
+    // 初回マウント時に接続開始！
+    connectWebSocket();
+
+    // クリーンアップ関数（画面を閉じた時に通信を切る）
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) {
+        ws.onclose = null; // クリーンアップ時の意図的なクローズでは再接続させない
+        ws.close();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 💖 コマンド送信ロジック
   const handleCommandSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!command.trim() || isThinking) return;
@@ -144,7 +220,7 @@ export default function Home() {
               {logs.map((log, i) => (
                 <div key={i} className="text-sm flex gap-3 leading-relaxed">
                   <span className="text-gray-500 shrink-0">[{log.timestamp.split('T')[1].substring(0,8)}]</span>
-                  <span className={`shrink-0 font-bold ${log.agent === 'CAPTAIN' ? 'text-[#ffb86c]' : 'text-[#8be9fd]'}`}>
+                  <span className={`shrink-0 font-bold ${log.agent === 'CAPTAIN' ? 'text-[#ffb86c]' : log.agent === 'ARK' ? 'text-[#ff79c6]' : 'text-[#8be9fd]'}`}>
                     {log.agent}:
                   </span>
                   <span className={`
@@ -163,8 +239,45 @@ export default function Home() {
             <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] opacity-20" />
           </div>
 
-          {/* 右下: 指示入力 (コマンドインターフェース) */}
-          <div className="w-[400px] flex flex-col justify-end">
+          {/* 右下: 指示入力 (コマンドインターフェース) と 航路図 */}
+          <div className="w-[400px] flex flex-col justify-end gap-6">
+            
+            {/* 🗺️ 動的航路図 (SEA CHART) */}
+            <div className="bg-[#0f172a]/80 backdrop-blur-xl border border-[#8be9fd]/50 rounded-lg p-4 shadow-[0_0_30px_rgba(139,233,253,0.1)]">
+              <h3 className="text-xs text-[#8be9fd] uppercase tracking-widest mb-4 border-b border-[#8be9fd]/20 pb-2 text-right">Sea Chart</h3>
+              <div className="flex flex-col gap-3 w-full px-4 py-2">
+                {['IDLE', 'PLANNING', 'CODING', 'REVIEWING', 'COMMITTING', 'DONE'].map((p, i, arr) => {
+                  const isActive = phase === p;
+                  const phaseIndex = arr.indexOf(phase);
+                  const isPast = phaseIndex > i;
+
+                  return (
+                    <div key={p} className="flex items-center gap-4 relative">
+                      {/* 接続ライン */}
+                      {i !== arr.length - 1 && (
+                        <div className={`absolute left-2.5 top-6 w-0.5 h-6 ${isPast ? 'bg-[#50fa7b]' : 'bg-[#30363d]'}`} style={{ zIndex: 0 }} />
+                      )}
+                      
+                      {/* チェックポイント（島） */}
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center z-10 bg-[#0d1117] transition-all duration-500
+                        ${isActive ? 'border-[#8be9fd] shadow-[0_0_15px_rgba(139,233,253,0.8)] scale-125' : 
+                          isPast ? 'border-[#50fa7b]' : 'border-[#30363d]'}`}
+                      >
+                        {isActive && <div className="w-1.5 h-1.5 bg-[#8be9fd] rounded-full animate-pulse" />}
+                        {isPast && <div className="w-1.5 h-1.5 bg-[#50fa7b] rounded-full" />}
+                      </div>
+                      
+                      {/* ラベル */}
+                      <span className={`font-bold tracking-[0.2em] text-xs transition-colors duration-300 ${isActive ? 'text-[#8be9fd] drop-shadow-[0_0_5px_rgba(139,233,253,0.8)]' : isPast ? 'text-[#50fa7b]' : 'text-[#30363d]'}`}>
+                        {p}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* コマンド入力 */}
             <div className="bg-[#0f172a]/80 backdrop-blur-xl border border-[#8be9fd]/50 rounded-lg p-4 shadow-[0_0_30px_rgba(139,233,253,0.2)] relative overflow-hidden">
               
               {/* 装飾: コーナーの光 */}
@@ -192,6 +305,7 @@ export default function Home() {
                 </button>
               </form>
             </div>
+
           </div>
 
         </div>

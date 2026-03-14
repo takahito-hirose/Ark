@@ -119,18 +119,17 @@ async def start_mission(request: MissionRequest, background_tasks: BackgroundTas
 
 # 🌟 NEW: フロントのホログラムHUD（コマンド入力）と繋ぐためのAPI！
 @app.post("/api/command")
-async def execute_command(req: CommandRequest):
-    """HUDターミナルからの指示を受け取るエンドポイント 💋"""
+async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks):
+    """HUDターミナルからの指示を受け取って、本物のARKを起動するエンドポイント 💋"""
     logger.info(f"💬 Command Received from HUD: {req.command}")
     
-    # 将来的にはここで「Orchestrator」と軽い会話をさせたりできるけど、
-    # 今回はフロント側のUIの通信テスト用に、モックの返事と金貨の消費量を返すよ！
-    await asyncio.sleep(1.5)
+    # 🌟 NEW: ついに本物のARKオーケストレーターを裏側で起動するわよ！
+    background_tasks.add_task(run_ark_mission, req.command)
     
-    # トークン（金貨）消費量のシミュレーション
+    # トークン（金貨）消費量のシミュレーション（とりあえず仮の演出として残しておくね）
     tokens_used = len(req.command) * 5 + 150
     return {
-        "message": f"ARK Backend Received: '{req.command}' (通信成功じゃん！)",
+        "message": f"Mission accepted! ARK is navigating: '{req.command}'",
         "tokens": tokens_used,
         "level": "success"
     }
