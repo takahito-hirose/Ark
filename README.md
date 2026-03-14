@@ -38,11 +38,11 @@ ARKは、クラウドの干渉や制限を排した、ローカル環境完結�
 ### 5. 【望遠鏡】外界知識の自律獲得 (The Web Telescope) 🔭
 * **Brave Search API:** 最新のドキュメントや技術スタックを調査するため、自律的にWeb検索とスクレイピングを実行し、プロンプトに知識を統合します。
 
-### 6. 【造船所】プロジェクト・ドック (The Dock) — **NEW!** 🏗️
+### 6. 【造船所】プロジェクト・ドック (The Dock) 🏗️
 * **Isolated Docking:** メインワークスペースから隔離された、タスクごとの独立したプロジェクトフォルダを自動生成。
 * **GitHub Automatic Deployment:** GitHub APIを利用し、自律的にリモートリポジトリを新規作成・射出。母艦（ARK）から新しい「探査船」が次々と旅立ちます。
 
-### 7. 【ニューロ・リンク】APIサーバー ＆ リアルタイム通信 (Neuro-Link) — **NEW!** 🔌
+### 7. 【ニューロ・リンク】APIサーバー ＆ リアルタイム通信 (Neuro-Link) 🔌
 * **FastAPI Core:** 外部システムやUIからの命令をREST API経由で受け付ける「感覚神経」を実装。
 * **WebSocket Streaming:** ARKの思考プロセス（脳波）をリアルタイムに配信。ブラウザ上のダッシュボードへ直接思考ログを流し込みます。
 
@@ -59,6 +59,24 @@ ARKは、クラウドの干渉や制限を排した、ローカル環境完結�
 - [x] **Phase 4.5 (プロジェクト・ドック):**
     - **GitHub Token API:** リモートリポジトリの自動生成とプロジェクトの隔離管理の実装。
     - **Neuro-Link:** APIサーバー化とWebSocketによるストリーミング基盤の構築。
-- [ ] **Phase 5 (The Grand Voyage): 🚀 NEXT**
+- [x] **Phase 5 (The Grand Voyage - Neuro-Link UI):**
     - **Dynamic Insight UI:** React / Tailwind / Three.js を用いた、リアルタイムな思考・航路の超没入型可視化（操舵室UI）。
+    - **The Synapse:** フロントエンドとバックエンドの完全非同期結合。
+- [ ] **Phase 6 (The Treasury & Beyond): 🚀 NEXT**
+    - **Token Economy:** 実際のエージェント推論に基づくリアルタイムなトークン（金貨）消費計算の実装。
     - **Autonomous Collaboration:** 複数のARKプロジェクト間でのコード共有と自動連携。
+
+---
+
+## ⚓️ 起動シークエンス (How to Run ARK)
+
+ARKの操舵室（UI）と機関室（バックエンド）を完全に同期させるための起動手順です。ターミナルを2つ開いて実行してください。
+
+### 1. 機関室（バックエンド）の起動
+
+プロジェクトのルートディレクトリ（`ARK_ROOT`）で、FastAPIサーバーを立ち上げます。
+※ `workspace` での自律コーディングによる無限再起動を防ぐため、監視対象を `src` のみに絞っています。
+
+```bash
+# プロジェクトルートで実行
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src
