@@ -63,11 +63,13 @@ manager = ConnectionManager()
 class MissionRequest(BaseModel):
     goal: str
 
+# 🌟 NEW: フロントエンドのターミナルからの入力用モデル！
+class CommandRequest(BaseModel):
+    command: str
+
 # ARKのイベントをWebSocketに中継するコールバック関数
 def create_status_callback(loop: asyncio.AbstractEventLoop):
     def callback(phase: Phase, status: str, retry_count: int, detail: str = ""):
-        # 💡 ここ！asyncio.get_event_loop() を使わずに、
-        # 引数で受け取っている 'loop' を直接使うように修正するわ💋
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "ARK_EVENT",
@@ -75,7 +77,7 @@ def create_status_callback(loop: asyncio.AbstractEventLoop):
                 "status": status,
                 "retry_count": retry_count,
                 "detail": detail,
-                "timestamp": loop.time() # 👈 get_event_loop() を削ったわ！
+                "timestamp": loop.time()
             }),
             loop
         )
@@ -101,7 +103,6 @@ async def run_ark_mission(goal: str):
     loop = asyncio.get_running_loop()
     
     # API経由でOrchestratorを起動
-    # ※ status_callback を使って WebSocket に情報を飛ばす仕組みよ
     orc = Orchestrator(
         on_status_change=create_status_callback(loop)
     )
@@ -116,7 +117,25 @@ async def start_mission(request: MissionRequest, background_tasks: BackgroundTas
     background_tasks.add_task(run_ark_mission, request.goal)
     return {"message": "Mission accepted. ARK is calculating the course...", "goal": request.goal}
 
+# 🌟 NEW: フロントのホログラムHUD（コマンド入力）と繋ぐためのAPI！
+@app.post("/api/command")
+async def execute_command(req: CommandRequest):
+    """HUDターミナルからの指示を受け取るエンドポイント 💋"""
+    logger.info(f"💬 Command Received from HUD: {req.command}")
+    
+    # 将来的にはここで「Orchestrator」と軽い会話をさせたりできるけど、
+    # 今回はフロント側のUIの通信テスト用に、モックの返事と金貨の消費量を返すよ！
+    await asyncio.sleep(1.5)
+    
+    # トークン（金貨）消費量のシミュレーション
+    tokens_used = len(req.command) * 5 + 150
+    return {
+        "message": f"ARK Backend Received: '{req.command}' (通信成功じゃん！)",
+        "tokens": tokens_used,
+        "level": "success"
+    }
+
 if __name__ == "__main__":
     import uvicorn
-    # サーバーを起動！
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # `src.api.main:app` にすることで、ホットリロードが効くようになるよ！
+    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)
