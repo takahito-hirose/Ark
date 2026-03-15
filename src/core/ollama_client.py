@@ -6,7 +6,7 @@ class OllamaClient:
         self.api_endpoint = api_endpoint
         self.model_name = model_name
 
-    def send_request(self, prompt: str) -> Optional[str]:
+    def send_request(self, prompt: str) -> tuple[Optional[str], dict]:
         try:
             url = f"{self.api_endpoint}/api/generate"
             headers = {
@@ -21,13 +21,19 @@ class OllamaClient:
 
             response = requests.post(url, headers=headers, json=data, timeout=60)
             response.raise_for_status()
-            return response.json().get('response')
+            
+            response_json = response.json()
+            text = response_json.get('response')
+            usage = response_json.get('usage', {})
+            
+            return text, usage
+
         except requests.RequestException as e:
             print(f"Error sending request to Ollama: {e}")
-            return None
+            return None, {}
 
-    def generate_text(self, prompt: str) -> Optional[str]:
-        text = self.send_request(prompt)
+    def generate_text(self, prompt: str) -> tuple[Optional[str], dict]:
+        text, usage = self.send_request(prompt)
         if text is not None:
-            return text.strip()
-        return None
+            return text.strip(), usage
+        return None, usage

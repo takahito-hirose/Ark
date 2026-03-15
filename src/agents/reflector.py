@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional # 🌟 Callable, Optional を追加！
 
 from src.agents.base_agent import BaseAgent
 from src.core.models import CodePayload, PlanPayload
@@ -53,9 +53,15 @@ class ReflectorAgent(BaseAgent):
         self, 
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
-        tools: list[Any] | None = None
+        tools: list[Any] | None = None,
+        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
     ) -> None:
-        super().__init__(provider, role="reflector", workspace_path=workspace_path)
+        super().__init__(
+            provider, 
+            role="reflector", 
+            workspace_path=workspace_path,
+            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
+        )
         self.tools = tools or []
 
     def reflect(self, plan: PlanPayload, code: CodePayload) -> None:

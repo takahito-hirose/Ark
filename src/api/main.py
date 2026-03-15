@@ -83,6 +83,17 @@ def create_status_callback(loop: asyncio.AbstractEventLoop):
         )
     return callback
 
+def create_token_usage_callback(loop: asyncio.AbstractEventLoop):
+    def callback(tokens_used: int):
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "TOKEN_USAGE",
+                "tokens": tokens_used
+            }),
+            loop
+        )
+    return callback
+
 @app.get("/")
 def read_root():
     return {"status": "ARK Online", "version": "4.5.1-dock"}
@@ -104,7 +115,8 @@ async def run_ark_mission(goal: str):
     
     # API経由でOrchestratorを起動
     orc = Orchestrator(
-        on_status_change=create_status_callback(loop)
+        on_status_change=create_status_callback(loop),
+        on_token_usage=create_token_usage_callback(loop)
     )
     
     # 別のスレッドで実行（Orchestratorがブロッキング処理のため）
@@ -127,10 +139,10 @@ async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks
     background_tasks.add_task(run_ark_mission, req.command)
     
     # トークン（金貨）消費量のシミュレーション（とりあえず仮の演出として残しておくね）
-    tokens_used = len(req.command) * 5 + 150
+    # tokens_used = len(req.command) * 5 + 150 # この行は削除かコメントアウト
     return {
-        "message": f"Mission accepted! ARK is navigating: '{req.command}'",
-        "tokens": tokens_used,
+        "message": f"Mission accepted! ARK is navigating: \'{req.command}\'",
+        # "tokens": tokens_used, # この行も削除かコメントアウト
         "level": "success"
     }
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional # 🌟 Callable, Optional を追加！
 
 from src.agents.base_agent import BaseAgent
 from src.core.models import (
@@ -71,8 +71,18 @@ ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省�
 class ReviewerAgent(BaseAgent):
     """審査担当SYLPHエージェント。"""
 
-    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
-        super().__init__(provider, role="reviewer", workspace_path=workspace_path)
+    def __init__(
+        self, 
+        provider: "BaseProvider", 
+        workspace_path: Path | None = None,
+        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
+    ) -> None:
+        super().__init__(
+            provider, 
+            role="reviewer", 
+            workspace_path=workspace_path,
+            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
+        )
 
     def review(self, code: CodePayload, retry: int, plan: PlanPayload | None = None) -> ReviewPayload:
         """コードを審査し ReviewPayload を返す。"""
@@ -121,8 +131,7 @@ class ReviewerAgent(BaseAgent):
         except (ValueError, TypeError):
             score = 0.9
 
-        # 👈 修正：初回リトライ時に強制的に FAIL にするロジックを削除！
-        # これが「💋ルール」を記憶する際のデッドロックの原因になっていたわ💋
+        # 👈 初回リトライ時に強制的に FAIL にするロジックは削除済み💋
 
         payload = ReviewPayload(
             status=status,

@@ -134,10 +134,11 @@ class ARKState:
 
 class Orchestrator:
     def __init__(
-        self, 
-        config_path: Path | None = None, 
+        self,
+        config_path: Path | None = None,
         workspace_path: str | Path | None = None,
-        on_status_change: StatusCallback | None = None
+        on_status_change: StatusCallback | None = None,
+        on_token_usage: Callable[[int], None] | None = None
     ) -> None:
         self._cfg = ConfigLoader.load(config_path)
         
@@ -148,13 +149,14 @@ class Orchestrator:
         # 初期状態ではベースを操作対象とする
         self._workspace = self._base_workspace
         
-        # 💡 [追加] コールバック関数をクラス全体で覚えておく！
-        self._on_status_change = on_status_change
+        # 🌟 NEW: コールバックをクラス全体で覚えておく！
+        self.on_status_change = on_status_change
+        self.on_token_usage = on_token_usage
         
         # 状態管理（状態は母艦直下に置く）
         self._state = ARKState(self._base_workspace)
-        if on_status_change:
-            self._state.set_callback(on_status_change)
+        if self.on_status_change:
+            self._state.set_callback(self.on_status_change)
 
         # 🧠 記憶システム（母艦 ARK の中枢図書館）
         self._memory = MemoryManager(base_dir=self._base_workspace / ".ark_memory")
@@ -168,11 +170,11 @@ class Orchestrator:
         ]
 
         # エージェントの初期化
-        # 💡 内部のパスは母艦ベースで初期化し、生成物は各ドックへ向ける
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace)
-        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace)
-        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace)
-        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=ark_tools)
+        # 🌟 修正: on_token_usage ではなく self.on_token_usage を渡す！
+        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
+        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
+        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
+        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=ark_tools, on_token_usage=self.on_token_usage)
         
         # ツール類（run 時に再設定される）
         self._terminal = TerminalOracle(workspace_path=self._base_workspace)
@@ -186,9 +188,12 @@ class Orchestrator:
         else:
             self._state = ARKState(self._base_workspace)
             self._state.goal = goal
-            # 💡 [追加] 状態を作り直した時に、通信ケーブルも繋ぎ直す！💋
-            if hasattr(self, '_on_status_change') and self._on_status_change:
-                self._state.set_callback(self._on_status_change)
+            
+        # 🌟 修正: hasattr を使わず、上で設定した self.on_status_change を直接チェック！
+        if self.on_status_change:
+            self._state.set_callback(self.on_status_change)
+        
+        # 🚨 ここにあった `if on_token_usage:` はエラーになるから削除したわよ！🚨
 
         # 🧠 記憶の引き出し（ルールの合体）
         core_rules = self._memory.load_core_rules_prompt()
