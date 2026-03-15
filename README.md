@@ -80,3 +80,19 @@ ARKの操舵室（UI）と機関室（バックエンド）を完全に同期さ
 ```bash
 # プロジェクトルートで実行
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src
+```
+
+### 2. 操舵室（フロントエンドHUD）の起動
+
+次に、Next.jsで構築されたホログラムUIを立ち上げます。
+
+```bash
+# ark-odissey フォルダに移動して実行
+cd ark-odissey
+npm run dev
+```
+
+### 3. ニューロ・リンク接続
+
+ブラウザで `http://localhost:3000` にアクセスします。
+右下のターミナル（SYLPH ACTIVITY）に `[SYSTEM]: Neuro-Link (WebSocket) Connection Established. 🧠✨` と表示されれば、ARKとの神経接続は完了です。コマンドを入力して、自律航行を開始してください！
