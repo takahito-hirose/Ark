@@ -15,14 +15,13 @@ from __future__ import annotations
 import logging
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional # 🌟 CallableとOptionalを追加！
 import os
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
 
 log = logging.getLogger("ARK.Agent")
-
 
 class BaseAgent(ABC):
     """すべてのARKエージェント（SYLPH）の基底クラス。
@@ -36,9 +35,16 @@ class BaseAgent(ABC):
         エージェントのロール名。ログ出力に使用する（例: ``"architect"``）。
     """
 
-    def __init__(self, provider: "BaseProvider", role: str = "agent", workspace_path: Path | str | None = None) -> None:
+    def __init__(
+        self, 
+        provider: "BaseProvider", 
+        role: str = "agent", 
+        workspace_path: Path | str | None = None,
+        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 NEW: 引数に受け口を追加！
+    ) -> None:
         self._provider = provider
         self._role     = role
+        self._on_token_usage = on_token_usage # これでエラーにならない！💋
         
         # 👇 ここが「E」の嵐を止める魔法の1行！
         # None が来たら Path(".") （カレントディレクトリ）をデフォルトにするわ
@@ -53,6 +59,7 @@ class BaseAgent(ABC):
         """プロバイダーの ``generate()`` を呼び出す共通ラッパー。
 
         ロギングとエラーハンドリングを一元化する。
+        トークン使用量をコールバックに通知する。
 
         Parameters
         ----------
@@ -67,7 +74,14 @@ class BaseAgent(ABC):
         """
         log.info("[%s] Calling LLM (%r) …", self._role, self._provider)
         try:
-            response = self._provider.generate(prompt)
+            response, usage = self._provider.generate_with_usage(prompt)
+            if self._on_token_usage and usage is not None:
+                # (プロンプト文字数 + 生成文字数) / 4 で概算
+                estimated_tokens = (len(prompt) + len(response)) // 4
+                actual_tokens = usage.get("total_tokens", estimated_tokens)
+                self._on_token_usage(actual_tokens)
+                log.info("[%s] Token usage: %d", self._role, actual_tokens)
+
             log.debug(
                 "[%s] LLM response received (%d chars)",
                 self._role, len(response),

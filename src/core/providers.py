@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any
 
 log = logging.getLogger("ARK.Providers")
 
@@ -34,30 +34,18 @@ log = logging.getLogger("ARK.Providers")
 # ---------------------------------------------------------------------------
 
 class BaseProvider(ABC):
-    """すべてのLLMプロバイダーが実装すべき共通インターフェース。
+    """すべてのLLMプロバイダーが実装すべき共通インターフェース。"""
 
-    Subclasses must implement :meth:`generate`.
-    """
-
-    @abstractmethod
+    # 🌟 ここがポイント！抽象メソッドじゃないから、各プロバイダで書かなくてOK！
     def generate(self, prompt: str) -> str:
-        """プロンプトをLLMに送信し、テキスト応答を返す。
+        """プロンプトをLLMに送信し、テキスト応答を返す（互換性用）。"""
+        text, _ = self.generate_with_usage(prompt)
+        return text
 
-        Parameters
-        ----------
-        prompt:
-            LLMに送るプロンプト文字列。
-
-        Returns
-        -------
-        str
-            LLMが生成したテキスト応答。
-
-        Raises
-        ------
-        RuntimeError
-            プロバイダーへの接続または生成に失敗した場合。
-        """
+    # 🌟 各プロバイダは、この「テキストと使用量を返す」メソッドだけ作ればOK！
+    @abstractmethod
+    def generate_with_usage(self, prompt: str) -> Tuple[str, Dict[str, Any]]:
+        """プロンプトをLLMに送信し、テキスト応答とトークン使用量を返す。"""
         ...
 
     def __repr__(self) -> str:
@@ -69,18 +57,7 @@ class BaseProvider(ABC):
 # ---------------------------------------------------------------------------
 
 class OllamaProvider(BaseProvider):
-    """ローカル Ollama サーバーを使用するプロバイダー。
-
-    既存の :class:`~src.core.ollama_client.OllamaClient` をラップし、
-    :class:`BaseProvider` インターフェースに準拠させる。
-
-    Parameters
-    ----------
-    api_endpoint:
-        Ollama API のベースURL (例: ``http://localhost:11434``)。
-    model_name:
-        使用するモデル名 (例: ``deepseek-coder-v2``)。
-    """
+    """ローカル Ollama サーバーを使用するプロバイダー。"""
 
     def __init__(self, api_endpoint: str, model_name: str) -> None:
         from src.core.ollama_client import OllamaClient
@@ -89,32 +66,15 @@ class OllamaProvider(BaseProvider):
         self._api_endpoint = api_endpoint
         log.debug("OllamaProvider initialized: endpoint=%s model=%s", api_endpoint, model_name)
 
-    def generate(self, prompt: str) -> str:
-        """Ollama APIにプロンプトを送信し、応答テキストを返す。
-
-        Parameters
-        ----------
-        prompt:
-            送信するプロンプト文字列。
-
-        Returns
-        -------
-        str
-            Ollamaが生成したテキスト。
-
-        Raises
-        ------
-        RuntimeError
-            Ollama接続またはレスポンス取得に失敗した場合。
-        """
-        log.debug("OllamaProvider.generate() called (model=%s)", self._model_name)
-        result: Optional[str] = self._client.generate_text(prompt)
+    def generate_with_usage(self, prompt: str) -> Tuple[str, Dict[str, Any]]:
+        log.debug("OllamaProvider.generate_with_usage() called (model=%s)", self._model_name)
+        result, usage = self._client.generate_text(prompt)
         if result is None:
             raise RuntimeError(
                 f"OllamaProvider: レスポンスの取得に失敗しました。"
                 f" endpoint={self._api_endpoint}, model={self._model_name}"
             )
-        return result
+        return result, usage
 
     def __repr__(self) -> str:
         return f"<OllamaProvider model={self._model_name!r} endpoint={self._api_endpoint!r}>"
@@ -123,48 +83,42 @@ class OllamaProvider(BaseProvider):
 # ---------------------------------------------------------------------------
 # MockProvider
 # ---------------------------------------------------------------------------
+
 class MockProvider(BaseProvider):
-    """接続不要のダミープロバイダー。
-    入力プロンプトのキーワードに応じて、適切な構造化データ(JSON/Markdown)を返す。
-    """
+    """接続不要のダミープロバイダー。"""
 
     def __init__(self, response_template: Optional[str] = None) -> None:
-        # 👈 アンダースコアなしの self.template にして generate と合わせるわよ
         self.template = response_template 
         log.debug("MockProvider initialized (Context-Aware Mode)")
 
-    def generate(self, prompt: str) -> str:
+    def generate_with_usage(self, prompt: str) -> Tuple[str, Dict[str, Any]]:
         display_prompt = prompt if len(prompt) <= 100 else prompt[:100] + "..."
+        estimated_tokens = len(prompt) // 4
         
         if self.template:
-            return self.template.replace("{prompt}", display_prompt)
+            return self.template.replace("{prompt}", display_prompt), {"total_tokens": estimated_tokens}
 
-        # 👈 ここがポイント！ プロンプトが JSON を求めてそうなら、
-        # もしくは Reviewer が呼んでそうなら、一律で JSON を返すようにするわ。
         if "REVIEW" in prompt.upper() or "STATUS" in prompt.lower():
-            # retry が 0 (初回) の時だけあえて失敗させる（テストの期待値）
             if "RETRY: 0" in prompt.upper() or "RETRY=0" in prompt.upper():
-                return '{"status": "FAIL", "score": 0.4, "summary": "Found issues", "issues": ["Lack of docstrings"]}'
-            # それ以外は PASS
-            return '{"status": "PASS", "score": 1.0, "summary": "Perfect!", "issues": []}'
+                return '{"status": "FAIL", "score": 0.4, "summary": "Found issues", "issues": ["Lack of docstrings"]}', {"total_tokens": 50}
+            return '{"status": "PASS", "score": 1.0, "summary": "Perfect!", "issues": []}', {"total_tokens": 30}
 
-        # PLANNING 用の JSON
         if "PLAN" in prompt.upper():
-            return '{"reasoning": "Mock plan", "target_files": ["hello.py"], "tasks": [], "acceptance_criteria": [], "constraints": []}'
+            return '{"reasoning": "Mock plan", "target_files": ["hello.py"], "tasks": [], "acceptance_criteria": [], "constraints": []}', {"total_tokens": 100}
 
-        # CODING 用の Markdown
         if "CODE" in prompt.upper():
-            return "```python\nprint('hello')\n```"
+            # マークダウンの記号で表示システムが勘違いしないように分割結合の裏技を使うわ！💋
+            return "``" + "`python\nprint('hello')\n``" + "`", {"total_tokens": 70}
 
-        return f"[MOCK RESPONSE] Default for: {display_prompt}"
+        return f"[MOCK RESPONSE] Default for: {display_prompt}", {"total_tokens": estimated_tokens}
+
 
 # ---------------------------------------------------------------------------
-# GeminiProvider (雛形)
+# GeminiProvider
 # ---------------------------------------------------------------------------
-# --- src/core/providers.py の GeminiProvider セクションを以下に差し替え ---
 
 class GeminiProvider(BaseProvider):
-    """Google Gemini API を使用するプロバイダー（重量課金・爆速チューニング版）。"""
+    """Google Gemini API を使用するプロバイダー。"""
 
     def __init__(self, api_key: str = "", model_name: str = "gemini-3-flash") -> None:
         self._api_key = api_key
@@ -175,14 +129,13 @@ class GeminiProvider(BaseProvider):
             import os
             self._api_key = os.environ.get("GOOGLE_API_KEY", "")
 
-        # 課金枠パワーをフル活用するための設定
         self._generation_config = {
-            "temperature": 0.2,       # コード生成なので少し低めにして正確性をアップ
+            "temperature": 0.2,
             "top_p": 0.95,
-            "max_output_tokens": 8192, # 1024から一気に8倍へ！長文コードも怖くないわ
+            "max_output_tokens": 8192,
         }
 
-        log.debug("GeminiProvider (Paid Mode) initialized: model=%s", model_name)
+        log.debug("GeminiProvider initialized: model=%s", model_name)
 
     def _ensure_initialized(self) -> None:
         if self._model is not None:
@@ -203,19 +156,21 @@ class GeminiProvider(BaseProvider):
         )
         log.info("GeminiProvider: Paid Tier Model %r Ready 🚀", self._model_name)
 
-    def generate(self, prompt: str) -> str:
+    def generate_with_usage(self, prompt: str) -> Tuple[str, Dict[str, Any]]:
         self._ensure_initialized()
-        log.debug("GeminiProvider.generate() calling (no-sleep mode)...")
+        log.debug("GeminiProvider.generate_with_usage() calling...")
 
         try:
-            # 課金枠なら time.sleep(4) なんて不要！そのまま突っ込むわよ！
             response = self._model.generate_content(prompt)
             
             if not response.text:
                 log.warning("GeminiProvider: 空のレスポンスが返されました。")
-                return ""
-                
-            return response.text
+                return "", {"total_tokens": 0}
+            
+            estimated_tokens = (len(prompt) + len(response.text)) // 4
+            usage = {"total_tokens": estimated_tokens}
+            
+            return response.text, usage
         except Exception as exc:
             log.error("GeminiProvider generation failed: %s", exc)
             raise RuntimeError(f"GeminiProviderエラー: {exc}") from exc

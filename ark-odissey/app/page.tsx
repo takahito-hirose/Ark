@@ -61,6 +61,11 @@ export default function Home() {
               setPhase(data.phase.toUpperCase() as any);
             }
           }
+          // 🌟 NEW: バックエンドからトークン消費の報告が来たら、金貨を減らす！
+          if (data.type === 'TOKEN_USAGE') {
+            spendCoins(data.tokens);
+            // オプションで「チャリンチャリン🪙」ってログに出しても可愛いかも💋
+          }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
         }
@@ -134,9 +139,9 @@ export default function Home() {
       });
 
       // 4. トークン消費（コインを減らすロジック）🪙
-      if (data.tokens) {
-        spendCoins(data.tokens);
-      }
+      // if (data.tokens) {
+      //  spendCoins(data.tokens);
+      // }
 
     } catch (error: any) {
       // エラーが起きたら赤文字でログに出すよ！
@@ -220,9 +225,15 @@ export default function Home() {
               {logs.map((log, i) => (
                 <div key={i} className="text-sm flex gap-3 leading-relaxed">
                   <span className="text-gray-500 shrink-0">[{log.timestamp.split('T')[1].substring(0,8)}]</span>
-                  <span className={`shrink-0 font-bold ${log.agent === 'CAPTAIN' ? 'text-[#ffb86c]' : log.agent === 'ARK' ? 'text-[#ff79c6]' : 'text-[#8be9fd]'}`}>
+                  
+                  {/* 🌟 修正ポイント: エージェントごとにバキバキのネオンカラー＆ドロップシャドウ！ */}
+                  <span className={`shrink-0 font-bold 
+                    ${log.agent === 'CAPTAIN' ? 'text-[#ffb86c] drop-shadow-[0_0_8px_rgba(255,184,108,0.8)]' : 
+                      log.agent === 'ARK' ? 'text-[#ff79c6] drop-shadow-[0_0_8px_rgba(255,121,198,0.8)]' : 
+                      'text-[#8be9fd] drop-shadow-[0_0_8px_rgba(139,233,253,0.8)]'}`}>
                     {log.agent}:
                   </span>
+                  
                   <span className={`
                     ${log.level === 'error' ? 'text-[#ff5555]' : ''}
                     ${log.level === 'success' ? 'text-[#50fa7b]' : ''}

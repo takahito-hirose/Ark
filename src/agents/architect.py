@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path  # 👈 地味に抜けてたから足しておいたわ💋
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional # 🌟 Callable, Optional を追加！
 
 from src.agents.base_agent import BaseAgent
 from src.core.agents import build_architect_prompt
@@ -66,8 +66,18 @@ class ArchitectAgent(BaseAgent):
         使用する :class:`~src.core.providers.BaseProvider` 実装。
     """
 
-    def __init__(self, provider: "BaseProvider", workspace_path: Path | None = None) -> None:
-        super().__init__(provider, role="architect", workspace_path=workspace_path)
+    def __init__(
+        self, 
+        provider: "BaseProvider", 
+        workspace_path: Path | None = None,
+        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
+    ) -> None:
+        super().__init__(
+            provider, 
+            role="architect", 
+            workspace_path=workspace_path,
+            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
+        )
 
     # ------------------------------------------------------------------
     # Public API

@@ -16,7 +16,7 @@ import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional # 🌟 Callable, Optional を追加！
 
 from src.agents.base_agent import BaseAgent
 from src.core.agents import build_coder_prompt, build_remediation_prompt
@@ -49,9 +49,15 @@ class CoderAgent(BaseAgent):
         self, 
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
-        tools: list[Any] | None = None
+        tools: list[Any] | None = None,
+        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
     ) -> None:
-        super().__init__(provider, role="coder", workspace_path=workspace_path)
+        super().__init__(
+            provider, 
+            role="coder", 
+            workspace_path=workspace_path,
+            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
+        )
         # 👈 記憶ツールは Reflector が担当するため、Coder 内では保持のみ（使用はしない）にします。
 
     def code(
