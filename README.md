@@ -46,6 +46,12 @@ ARKは、クラウドの干渉や制限を排した、ローカル環境完結�
 * **FastAPI Core:** 外部システムやUIからの命令をREST API経由で受け付ける「感覚神経」を実装。
 * **WebSocket Streaming:** ARKの思考プロセス（脳波）をリアルタイムに配信。ブラウザ上のダッシュボードへ直接思考ログを流し込みます。
 
+### 8. 【金庫】トークン・エコノミー (The Treasury) 🪙 — **NEW!**
+ARKが消費したLLMの推論コスト（トークン数）をリアルタイムに計算し、操舵室（UI）の金貨メーターに反映するシステムです。
+* **Token Calculation:** バックエンドの各エージェントが推論を行うたびに、プロバイダーから正確な消費トークン数を取得します（Ollama等のAPIから取得できない場合は、`(プロンプト文字数 + 生成文字数) / 4` の計算式で高精度な概算を算出します）。
+* **Real-time Sync:** 計算されたトークン消費量は、WebSocket経由（`TOKEN_USAGE` イベント）で瞬時にフロントエンドのHUDへ送信されます。
+* **Cost Estimation:** フロントエンドのストア（Zustand）にて、現在の市場相場（例: 100,000トークン = $1.00 等）を基にリアルタイムなコスト計算を行い、エージェントが思考するたびにチャリンと金貨を消費する様子を可視化します。
+
 ---
 
 ## 🚀 航海ロードマップ
@@ -62,8 +68,10 @@ ARKは、クラウドの干渉や制限を排した、ローカル環境完結�
 - [x] **Phase 5 (The Grand Voyage - Neuro-Link UI):**
     - **Dynamic Insight UI:** React / Tailwind / Three.js を用いた、リアルタイムな思考・航路の超没入型可視化（操舵室UI）。
     - **The Synapse:** フロントエンドとバックエンドの完全非同期結合。
-- [ ] **Phase 6 (The Treasury & Beyond): 🚀 NEXT**
-    - **Token Economy:** 実際のエージェント推論に基づくリアルタイムなトークン（金貨）消費計算の実装。
+- [x] **Phase 6 (The Treasury):**
+    - **Token Economy:** 実際のエージェント推論に基づくリアルタイムなトークン（金貨）消費計算とWebSocket連携の実装。
+- [ ] **Phase 7 (The Grand Fleet & Beyond): 🚀 NEXT**
+    - **GitHub Auto-Deploy Fix:** GitHub APIの権限エラー解消と、探査船（リモートリポジトリ）の完全自律射出の実装。
     - **Autonomous Collaboration:** 複数のARKプロジェクト間でのコード共有と自動連携。
 
 ---
