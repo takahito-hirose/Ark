@@ -176,4 +176,4 @@ class CoderAgent(BaseAgent):
             if __name__ == "__main__":
                 main()
         """)
-        return FileChange(path=path, action=FileChange.CREATE, content=content)
+        return FileChange(path=path, action=FileAction.CREATE, content=content)

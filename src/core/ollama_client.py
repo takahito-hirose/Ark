@@ -19,7 +19,8 @@ class OllamaClient:
                 "stream": False
             }
 
-            response = requests.post(url, headers=headers, json=data, timeout=60)
+            # 🌟 ここを 60 から 180 (3分) に延長したわよ！必要なら 300 にしてもOK！
+            response = requests.post(url, headers=headers, json=data, timeout=180)
             response.raise_for_status()
             
             response_json = response.json()
