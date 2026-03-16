@@ -193,8 +193,6 @@ class Orchestrator:
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
         
-        # 🚨 ここにあった `if on_token_usage:` はエラーになるから削除したわよ！🚨
-
         # 🧠 記憶の引き出し（ルールの合体）
         core_rules = self._memory.load_core_rules_prompt()
         if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
@@ -293,6 +291,16 @@ class Orchestrator:
             log.info("[THE DOCK] Launching probe ship to GitHub...")
             branch_name = self._git.create_topic_branch(self._state.task_id)
             self._git.push(branch_name)
+            
+            # 🌟 NEW: Push成功後に、UIへURL付きで完了通知をブロードキャストするわよ！
+            if self._git.repo_url:
+                # 認証用の oauth2:トークン@ が含まれている場合は消して綺麗なURLにする💋
+                clean_url = self._git.repo_url.split("@")[-1] if "@" in self._git.repo_url else self._git.repo_url
+                clean_url = "https://" + clean_url if not clean_url.startswith("http") else clean_url
+                
+                self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"Probe ship launched to: {clean_url}")
+            else:
+                self._state.push_event(Phase.COMMITTING, "DEPLOYED", "Probe ship launched to GitHub.")
 
         # ── PHASE 5: REFLECT ──────────────────────────────────────────────
         log.info("[REFLECT] 振り返りフェーズ開始...")

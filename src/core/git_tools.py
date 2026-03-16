@@ -42,7 +42,10 @@ class GitTool:
             )
             return True
         except subprocess.CalledProcessError as e:
-            log.error("Git command failed: %s\nStderr: %s", " ".join(args), e.stderr)
+            # 🚨 ログにトークンが漏れないようにサニタイズ（マスク）するわよ！
+            safe_args = [arg.replace(self.github_token, "***") if self.github_token else arg for arg in args]
+            safe_stderr = e.stderr.replace(self.github_token, "***") if self.github_token and e.stderr else e.stderr
+            log.error("Git command failed: %s\nStderr: %s", " ".join(safe_args), safe_stderr)
             return False
 
     def create_remote_repo(self, name: str, description: str, private: bool = True) -> Optional[str]:
@@ -58,9 +61,15 @@ class GitTool:
             "Authorization": f"token {self.github_token}",
             "Accept": "application/vnd.github.v3+json"
         }
+        
+        # 🚨 修正: 記憶（コアルール）の改行をスペースに置換し、長すぎる場合は切り詰める💋
+        safe_description = " ".join(description.splitlines()).strip()
+        if len(safe_description) > 200:
+            safe_description = safe_description[:197] + "..."
+
         data = {
             "name": name,
-            "description": description,
+            "description": safe_description,
             "private": private,
             "auto_init": False 
         }
@@ -72,8 +81,11 @@ class GitTool:
                 log.info("✅ GitHub repository created: %s", repo_data.get("html_url"))
                 return repo_data.get("clone_url")
             elif response.status_code == 422:
-                log.warning("⚠️ Repository '%s' already exists. Fetching its URL...", name)
-                # 👈 既存なら、ユーザー情報を取得してURLを推測・再構築するわ！
+                # 念のため、本当に重複だったのかを確認できるように生のエラーログも出しておくわ！
+                log.warning("⚠️ GitHub validation failed (422). Response: %s", response.text)
+                log.warning("⚠️ Repository '%s' might already exist. Fetching its URL...", name)
+                
+                # 既存なら、ユーザー情報を取得してURLを推測・再構築する
                 user_res = requests.get("https://api.github.com/user", headers=headers)
                 if user_res.status_code == 200:
                     username = user_res.json().get("login")
@@ -93,7 +105,14 @@ class GitTool:
         log.info("🔗 Linking remote origin: %s", repo_url)
         # 既存のリモートをクリーンアップ
         subprocess.run(["git", "remote", "remove", "origin"], cwd=self.workspace, capture_output=True)
-        self._run_git(["remote", "add", "origin", repo_url])
+        
+        # 🔑 URLに認証トークンを埋め込む（これでPush時のNot Foundエラーを回避！）
+        auth_url = repo_url
+        if self.github_token and repo_url.startswith("https://"):
+            # https://github.com/... -> https://oauth2:<TOKEN>@github.com/...
+            auth_url = repo_url.replace("https://", f"https://oauth2:{self.github_token}@")
+
+        self._run_git(["remote", "add", "origin", auth_url])
         self._run_git(["branch", "-M", "main"])
 
     def create_topic_branch(self, task_id: str) -> str:
@@ -115,5 +134,5 @@ class GitTool:
     def push(self, branch_name: str):
         """リモートにプッシュする。"""
         log.info("🚀 Pushing branch %s to origin...", branch_name)
-        # 最初のPushはリモートブランチがないのでエラーを無視して強制pushするオプションをつける
+        # 最初のPushはリモートブランチがないので -u をつける
         self._run_git(["push", "-u", "origin", branch_name])
