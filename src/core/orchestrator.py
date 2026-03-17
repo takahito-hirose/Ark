@@ -138,10 +138,22 @@ class Orchestrator:
         config_path: Path | None = None,
         workspace_path: str | Path | None = None,
         on_status_change: StatusCallback | None = None,
-        on_token_usage: Callable[[int], None] | None = None
+        on_token_usage: Callable[[int], None] | None = None,
+        mode: str = "ECO"  # 🌟 NEW: mode引数を追加！
     ) -> None:
         self._cfg = ConfigLoader.load(config_path)
         
+        # 🌟 NEW: モードに応じて Config (使用モデル) を動的切り替え！💋
+        self.mode = mode.upper()
+        if self.mode == "RICH":
+            log.info("💎 RICH MODE ACTIVATED: Unleashing the power of Cloud LLMs!")
+            self._cfg.architect_provider = "gemini"
+            self._cfg.coder_provider = "gemini"
+            self._cfg.reviewer_provider = "gemini"
+            self._cfg.reflector_provider = "gemini"
+        else:
+            log.info("🌱 ECO MODE ACTIVATED: Conserving treasury with Local LLMs.")
+
         # 💡 [The Dock] 母艦のベースワークスペースを決定
         ws_input = workspace_path or self._cfg.workspace_path or "."
         self._base_workspace = Path(ws_input).resolve()
@@ -201,6 +213,7 @@ class Orchestrator:
 
         log.info("=" * 60)
         log.info("🚀  ARK Autonomous Loop (The Dock Edition) — task %s", self._state.task_id)
+        log.info("    MODE: %s", self.mode)
         log.info("    GOAL: %s", goal)
         log.info("=" * 60)
 
@@ -220,14 +233,7 @@ class Orchestrator:
         self._git = GitTool(self._workspace)
         self._terminal = TerminalOracle(workspace_path=self._workspace)
 
-        # GitHub リポジトリの自動造船
-        if not resume and os.getenv("GITHUB_TOKEN"):
-            repo_url = self._git.create_remote_repo(
-                name=project_id,
-                description=f"ARK Generated Project: {plan.goal[:50]}..."
-            )
-            if repo_url:
-                self._git.setup_dock(repo_url)
+        # 🚨 FIX: ここにあった「GitHubリポジトリの自動造船」処理を、フェーズ4（成功確定後）に移動させたわよ！💋
 
         # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
         code_result: CodePayload | None = None
@@ -284,6 +290,17 @@ class Orchestrator:
         # ── PHASE 4: COMMIT & PUSH (造船完了と射出) ──────────────────────────
         self._state.transition(Phase.COMMITTING)
         assert code_result is not None
+        
+        # 🌟 NEW: 全ての難関（コーディング＆レビュー）を突破したこの瞬間に、初めてGitHubにリポジトリを作るわ！
+        if not resume and self._git and os.getenv("GITHUB_TOKEN"):
+            repo_url = self._git.create_remote_repo(
+                name=project_id,
+                description=f"ARK Generated Project: {plan.goal[:50]}..."
+            )
+            if repo_url:
+                self._git.setup_dock(repo_url)
+
+        # そしてローカルにファイルを書き込んでコミット！
         committed = self._phase_commit(code_result, plan.goal)
 
         # 🚀 GitHub へプッシュ！
