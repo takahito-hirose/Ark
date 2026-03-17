@@ -40,13 +40,13 @@ ARKは、クラウドの干渉や制限を排した、ローカル環境完結�
 
 ### 6. 【造船所】プロジェクト・ドック (The Dock) 🏗️
 * **Isolated Docking:** メインワークスペースから隔離された、タスクごとの独立したプロジェクトフォルダを自動生成。
-* **GitHub Automatic Deployment:** GitHub APIを利用し、自律的にリモートリポジトリを新規作成・射出。母艦（ARK）から新しい「探査船」が次々と旅立ちます。
+* **GitHub Automatic Deployment:** 成功が確定した瞬間にのみリポジトリを作成・射出する「遅延射出プロトコル（Lazy Creation）」により、クリーンな航海を実現します。
 
 ### 7. 【ニューロ・リンク】APIサーバー ＆ リアルタイム通信 (Neuro-Link) 🔌
 * **FastAPI Core:** 外部システムやUIからの命令をREST API経由で受け付ける「感覚神経」を実装。
 * **WebSocket Streaming:** ARKの思考プロセス（脳波）をリアルタイムに配信。ブラウザ上のダッシュボードへ直接思考ログを流し込みます。
 
-### 8. 【金庫】トークン・エコノミー (The Treasury) 🪙 — **NEW!**
+### 8. 【金庫】トークン・エコノミー (The Treasury) 🪙
 ARKが消費したLLMの推論コスト（トークン数）をリアルタイムに計算し、操舵室（UI）の金貨メーターに反映するシステムです。
 * **Token Calculation:** バックエンドの各エージェントが推論を行うたびに、プロバイダーから正確な消費トークン数を取得します（Ollama等のAPIから取得できない場合は、`(プロンプト文字数 + 生成文字数) / 4` の計算式で高精度な概算を算出します）。
 * **Real-time Sync:** 計算されたトークン消費量は、WebSocket経由（`TOKEN_USAGE` イベント）で瞬時にフロントエンドのHUDへ送信されます。
@@ -70,9 +70,18 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - **The Synapse:** フロントエンドとバックエンドの完全非同期結合。
 - [x] **Phase 6 (The Treasury):**
     - **Token Economy:** 実際のエージェント推論に基づくリアルタイムなトークン（金貨）消費計算とWebSocket連携の実装。
-- [ ] **Phase 7 (The Grand Fleet & Beyond): 🚀 NEXT**
-    - **GitHub Auto-Deploy Fix:** GitHub APIの権限エラー解消と、探査船（リモートリポジトリ）の完全自律射出の実装。
-    - **Autonomous Collaboration:** 複数のARKプロジェクト間でのコード共有と自動連携。
+- [x] **Phase 7 (The Grand Fleet & UI Evolution):**
+    - **GitHub Auto-Deploy Fix:** GitHub APIのリポジトリ作成・権限エラーを解消し、探査船（リモートリポジトリ）の完全自律射出を修復。
+    - **Model Selector (Eco / Rich):** 操舵室（HUD）に切り替えスイッチを実装。ローカルLLMでコストを抑える「Ecoモード」と、API経由でSOTAモデル（Gemini等）をフル稼働させる「Richモード」を動的に選択可能にする。
+    - **HUD Expansion:** 要件定義書などの巨大なテキストを直接ペーストできるよう、ミッション入力コンソールのUI領域を大容量化。
+- [x] **Phase 8 (The Deep Sea Trials):**
+    - **Stress Testing:** 複雑で大規模な要件定義を実際に投入し、Architectのタスク分割能力、Coderの実装力、そしてシステム全体のエラー修復耐性（Auto-Bailing）を検証する耐久テスト航海。
+- [ ] **Phase 9 (The Continuous Voyage - 1→100 Evolution): 🚀 NEXT** 🌟 **NEW!**
+    - **Existing Repo Ingestion:** 既存のリポジトリ（既に海に出ている探査船）をThe Dockに読み込み、プロジェクト構造と既存の文脈をRAGやAST解析で完全に理解する機能。
+    - **Targeted Modification (Diff / Patch):** 「0→1」の新規作成だけでなく、既存コードの特定部分だけを的確に修正・機能追加する「1→100」の実装能力（差分適用エンジン）の構築。
+    - **Auto-PR Generation:** 既存リポジトリへの機能追加後、自律的にトピックブランチを切り、GitHubへPull Request（改善提案）を作成・送信する機能。
+
+> **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
 ---
 
