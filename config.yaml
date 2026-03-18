@@ -32,7 +32,7 @@ reflector_model: "llama3.2:3b"  # 👈 Reflector 用のモデルを追加（Revi
 # Google Gemini settings (会社に戻った時はここを gemini に戻してね)
 # ---------------------------------------------------------------------------
 gemini_api_key: ""
-architect_model_gemini: "gemini-2.0-flash"
-coder_model_gemini: "gemini-2.0-flash"
-reviewer_model_gemini: "gemini-2.0-flash"
-reflector_model_gemini: "gemini-2.0-flash" # 👈 Geminiモード用も忘れずに！
+architect_model_gemini: "gemini-2.5-flash"
+coder_model_gemini: "gemini-2.5-flash"
+reviewer_model_gemini: "gemini-2.5-flash"
+reflector_model_gemini: "gemini-2.5-flash" # 👈 Geminiモード用も忘れずに！

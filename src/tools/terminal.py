@@ -1,12 +1,13 @@
 """
 ARK.Tools — Terminal Oracle
 ===========================
-Macのターミナルを操作し、エージェントの指示に応じてコマンドを実行する。
+Mac/Windowsのターミナルを操作し、エージェントの指示に応じてコマンドを実行する。
 """
 
 import subprocess
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -32,7 +33,24 @@ class TerminalOracle:
     def __init__(self, workspace_path: str | Path = "."):
         self.workspace_path = Path(workspace_path).resolve()
         self.commands_executed = []
+        
+        # 🛡️ 仮想環境のパス設定（Windows仕様）
+        self.venv_dir = self.workspace_path / ".venv"
+        self.venv_python = self.venv_dir / "Scripts" / "python.exe"
+        self.venv_pip = self.venv_dir / "Scripts" / "pip.exe"
+        
         log.info("Terminal Oracle initialized at: %s", self.workspace_path)
+        
+        # 起動時に隔離部屋を自動建設！
+        self._ensure_venv()
+
+    def _ensure_venv(self):
+        """ドック内に専用の仮想環境が存在しない場合は作成するわ"""
+        if not self.venv_python.exists():
+            log.info(f"🛡️ Building absolute shield (venv) at {self.venv_dir}...")
+            # 母艦と同じバージョンのPythonでvenvを作成
+            subprocess.run([sys.executable, "-m", "venv", str(self.venv_dir)], check=True)
+            log.info("✅ Shield built successfully!")
 
     def execute_command(self, command: str, timeout: int = 60) -> CommandResult:
         """
@@ -45,7 +63,14 @@ class TerminalOracle:
             log.warning("🚫 %s", msg)
             return CommandResult(-1, "", msg, False)
 
-        log.info("Oracle executing: %s", command)
+        # 🚨 コマンドの乗っ取り（ハイジャック）：pythonとpipをvenvのものにすり替える
+        safe_command = command
+        if command.startswith("python "):
+            safe_command = command.replace("python ", f'"{self.venv_python}" ', 1)
+        elif command.startswith("pip "):
+            safe_command = command.replace("pip ", f'"{self.venv_pip}" ', 1)
+
+        log.info("Oracle executing: %s", safe_command)
         
         try:
             # ワークスペースを作成（存在しない場合）
@@ -53,12 +78,14 @@ class TerminalOracle:
 
             # コマンド実行
             result = subprocess.run(
-                command,
+                safe_command,
                 shell=True,
                 cwd=self.workspace_path,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                encoding="utf-8", # Windowsの文字化け対策よ！💋
+                errors="replace", # 🌟 追加: 解読できない文字（cp932等）は ? に置換してクラッシュを絶対防ぐ！
                 env=os.environ.copy() # 現在の環境変数を継承
             )
             
