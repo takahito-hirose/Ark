@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from src.memory import MemoryManager
 from src.tools import memory_tools
 from src.tools.terminal import TerminalOracle
+from src.core.patch_engine import PatchEngine
 
 class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
@@ -233,8 +234,6 @@ class Orchestrator:
         self._git = GitTool(self._workspace)
         self._terminal = TerminalOracle(workspace_path=self._workspace)
 
-        # 🚨 FIX: ここにあった「GitHubリポジトリの自動造船」処理を、フェーズ4（成功確定後）に移動させたわよ！💋
-
         # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
         code_result: CodePayload | None = None
         last_review: ReviewPayload | None = None
@@ -329,6 +328,32 @@ class Orchestrator:
         log.info("🏛️  ARK loop complete — Probe ship launched from The Dock: %s", self._workspace)
         return self._workspace
 
+    # --------------------------------------------------------- internal helpers
+
+    def _write_artifacts(self, task_dir: Path, files: list[FileChange]):
+        """
+        生成されたコードをファイルに書き出すわ。
+        Phase 9仕様: パッチ形式なら外科手術、そうでなければ全上書きよ！💋
+        """
+        for fc in files:
+            # ファイル名はフラットにドック直下に展開
+            file_path = task_dir / Path(fc.path).name
+            content = fc.content
+
+            if "<<<<<<< SEARCH" in content:
+                # 🏥 外科手術（パッチ適用）
+                success = PatchEngine.apply_patches(str(file_path), content)
+                if success:
+                    log.info("✅ Surgically modified: %s", fc.path)
+                else:
+                    # パッチ適用失敗なら、安全のためにフォールバック（またはエラーに）
+                    log.warning("⚠️ Patch failed for %s. Overwriting instead.", fc.path)
+                    file_path.write_text(content, encoding="utf-8")
+            else:
+                # 🆕 新規作成 or 全上書き
+                file_path.write_text(content, encoding="utf-8")
+                log.info("📝 File written: %s", fc.path)
+
     # --------------------------------------------------------- phase methods
 
     def _phase_plan(self, goal: str) -> PlanPayload:
@@ -352,10 +377,9 @@ class Orchestrator:
 
     def _phase_run(self, code: CodePayload) -> RunResult:
         log.info("[RUN]  Terminal Oracle executing code within The Dock …")
-        for fc in code.files:
-            # 💡 ファイル名はフラットにドック直下に展開
-            safe_path = self._workspace / Path(fc.path).name
-            safe_path.write_text(fc.content, encoding="utf-8")
+        
+        # 🏥 外科手術エンジンを使用した書き出し
+        self._write_artifacts(self._workspace, code.files)
         
         if any(f.path.endswith("requirements.txt") for f in code.files):
             self._terminal.execute_command("pip install -r requirements.txt")
@@ -373,11 +397,11 @@ class Orchestrator:
     
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
         log.info("[COMMIT] Writing final artifacts to The Dock...")
-        committed: list[Path] = []
-        for fc in code.files:
-            safe_path = self._workspace / Path(fc.path).name
-            safe_path.write_text(fc.content, encoding="utf-8")
-            committed.append(safe_path)
+        
+        # 🏥 外科手術エンジンを使用した最終書き出し
+        self._write_artifacts(self._workspace, code.files)
+        
+        committed = [self._workspace / Path(fc.path).name for fc in code.files]
                 
         try:
             prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
