@@ -24,8 +24,8 @@ from dotenv import load_dotenv
 # 記憶システムとツールのインポート
 from src.memory import MemoryManager
 from src.tools import memory_tools
-from src.tools.terminal import TerminalOracle
-from src.core.patch_engine import PatchEngine
+from src.core.dock import Dock
+from src.core.state import ARKState, StatusCallback
 
 class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
@@ -69,65 +69,10 @@ log = logging.getLogger("ARK.Orchestrator")
 # ---------------------------------------------------------------------------
 
 MAX_RETRIES: Final[int] = 3
-STATE_FILENAME: Final[str] = ".ark_state.json"
 
 class CircuitBreakerTripped(RuntimeError): pass
 class OrchestratorBlocked(RuntimeError): pass
 
-# ---------------------------------------------------------------------------
-# Persistent State
-# ---------------------------------------------------------------------------
-
-class ARKState:
-    def __init__(self, workspace: Path) -> None:
-        self._path: Path = workspace / STATE_FILENAME
-        self.task_id:    str   = str(uuid.uuid4())
-        self.phase:      Phase = Phase.IDLE
-        self.goal:       str   = ""
-        self.retry_count: int  = 0
-        self.history:    list[dict] = []
-        self._on_status_change: StatusCallback | None = None
-
-    def set_callback(self, callback: StatusCallback | None) -> None:
-        self._on_status_change = callback
-
-    def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "task_id":    self.task_id,
-            "phase":      self.phase.value,
-            "goal":       self.goal,
-            "retry_count": self.retry_count,
-            "history":    self.history,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    def load(self) -> None:
-        if not self._path.exists(): return
-        data: dict = json.loads(self._path.read_text(encoding="utf-8"))
-        self.task_id     = data.get("task_id", self.task_id)
-        self.phase       = Phase(data.get("phase", Phase.IDLE.value))
-        self.goal        = data.get("goal", "")
-        self.retry_count = data.get("retry_count", 0)
-        self.history     = data.get("history", [])
-
-    def push_event(self, phase: Phase, status: str, detail: str = "") -> None:
-        self.history.append({
-            "phase":     phase.value,
-            "status":    status,
-            "detail":    detail,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        if self._on_status_change:
-            self._on_status_change(phase, status, self.retry_count, detail)
-
-    def transition(self, phase: Phase) -> None:
-        log.info("State transition: %s → %s", self.phase.value, phase.value)
-        self.phase = phase
-        self.save()
-        if self._on_status_change:
-            self._on_status_change(phase, "TRANSITION", self.retry_count, f"Moving to {phase.value}")
 
 # ---------------------------------------------------------------------------
 # Orchestrator (The Dock Edition)
@@ -152,15 +97,24 @@ class Orchestrator:
             self._cfg.coder_provider = "gemini"
             self._cfg.reviewer_provider = "gemini"
             self._cfg.reflector_provider = "gemini"
+            
+            # 🌟 FIX: モデル名も確実に gemini-2.5-flash に強制上書きするわよ！
+            self._cfg.architect_model = "gemini-2.5-flash"
+            self._cfg.coder_model = "gemini-2.5-flash"
+            self._cfg.reviewer_model = "gemini-2.5-flash"
+            self._cfg.reflector_model = "gemini-2.5-flash"
+            
+            # 🌟 FIX: config.py に定義されている Gemini 専用の変数も一緒に上書き！💋
+            self._cfg.architect_model_gemini = "gemini-2.5-flash"
+            self._cfg.coder_model_gemini = "gemini-2.5-flash"
+            self._cfg.reviewer_model_gemini = "gemini-2.5-flash"
+            self._cfg.reflector_model_gemini = "gemini-2.5-flash"
         else:
             log.info("🌱 ECO MODE ACTIVATED: Conserving treasury with Local LLMs.")
 
         # 💡 [The Dock] 母艦のベースワークスペースを決定
         ws_input = workspace_path or self._cfg.workspace_path or "."
         self._base_workspace = Path(ws_input).resolve()
-        
-        # 初期状態ではベースを操作対象とする
-        self._workspace = self._base_workspace
         
         # 🌟 NEW: コールバックをクラス全体で覚えておく！
         self.on_status_change = on_status_change
@@ -183,15 +137,13 @@ class Orchestrator:
         ]
 
         # エージェントの初期化
-        # 🌟 修正: on_token_usage ではなく self.on_token_usage を渡す！
         self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=ark_tools, on_token_usage=self.on_token_usage)
         
-        # ツール類（run 時に再設定される）
-        self._terminal = TerminalOracle(workspace_path=self._base_workspace)
-        self._git: GitTool | None = None 
+        # 🌟 The Dock の準備（ここから下はスッキリ！）
+        self.dock: Dock | None = None 
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
         self._base_workspace.mkdir(parents=True, exist_ok=True)
@@ -202,7 +154,6 @@ class Orchestrator:
             self._state = ARKState(self._base_workspace)
             self._state.goal = goal
             
-        # 🌟 修正: hasattr を使わず、上で設定した self.on_status_change を直接チェック！
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
         
@@ -223,16 +174,8 @@ class Orchestrator:
         plan = self._phase_plan(goal)
 
         # 🏗️ [The Dock] プロジェクトディレクトリ（造船ドック）の動的生成
-        # Architect が project_name を決めていない場合は、task_id から生成
         project_id = getattr(plan, 'project_name', f"ark-project-{self._state.task_id[:8]}")
-        self._workspace = self._base_workspace / project_id
-        self._workspace.mkdir(parents=True, exist_ok=True)
-        
-        log.info("🏗️  Welcome to The Dock: %s", self._workspace)
-        
-        # GitTool と TerminalOracle をこのプロジェクトドック専用に初期化
-        self._git = GitTool(self._workspace)
-        self._terminal = TerminalOracle(workspace_path=self._workspace)
+        self.dock = Dock(self._base_workspace, project_id)
 
         # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
         code_result: CodePayload | None = None
@@ -291,27 +234,27 @@ class Orchestrator:
         assert code_result is not None
         
         # 🌟 NEW: 全ての難関（コーディング＆レビュー）を突破したこの瞬間に、初めてGitHubにリポジトリを作るわ！
-        if not resume and self._git and os.getenv("GITHUB_TOKEN"):
-            repo_url = self._git.create_remote_repo(
+        if not resume and self.dock and self.dock.git and os.getenv("GITHUB_TOKEN"):
+            repo_url = self.dock.git.create_remote_repo(
                 name=project_id,
                 description=f"ARK Generated Project: {plan.goal[:50]}..."
             )
             if repo_url:
-                self._git.setup_dock(repo_url)
+                self.dock.git.setup_dock(repo_url)
 
         # そしてローカルにファイルを書き込んでコミット！
         committed = self._phase_commit(code_result, plan.goal)
 
         # 🚀 GitHub へプッシュ！
-        if self._git and os.getenv("GITHUB_TOKEN"):
+        if self.dock and self.dock.git and os.getenv("GITHUB_TOKEN"):
             log.info("[THE DOCK] Launching probe ship to GitHub...")
-            branch_name = self._git.create_topic_branch(self._state.task_id)
-            self._git.push(branch_name)
+            branch_name = self.dock.git.create_topic_branch(self._state.task_id)
+            self.dock.git.push(branch_name)
             
             # 🌟 NEW: Push成功後に、UIへURL付きで完了通知をブロードキャストするわよ！
-            if self._git.repo_url:
+            if self.dock.git.repo_url:
                 # 認証用の oauth2:トークン@ が含まれている場合は消して綺麗なURLにする💋
-                clean_url = self._git.repo_url.split("@")[-1] if "@" in self._git.repo_url else self._git.repo_url
+                clean_url = self.dock.git.repo_url.split("@")[-1] if "@" in self.dock.git.repo_url else self.dock.git.repo_url
                 clean_url = "https://" + clean_url if not clean_url.startswith("http") else clean_url
                 
                 self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"Probe ship launched to: {clean_url}")
@@ -325,34 +268,8 @@ class Orchestrator:
         self._state.save()
 
         self._state.transition(Phase.DONE)
-        log.info("🏛️  ARK loop complete — Probe ship launched from The Dock: %s", self._workspace)
-        return self._workspace
-
-    # --------------------------------------------------------- internal helpers
-
-    def _write_artifacts(self, task_dir: Path, files: list[FileChange]):
-        """
-        生成されたコードをファイルに書き出すわ。
-        Phase 9仕様: パッチ形式なら外科手術、そうでなければ全上書きよ！💋
-        """
-        for fc in files:
-            # ファイル名はフラットにドック直下に展開
-            file_path = task_dir / Path(fc.path).name
-            content = fc.content
-
-            if "<<<<<<< SEARCH" in content:
-                # 🏥 外科手術（パッチ適用）
-                success = PatchEngine.apply_patches(str(file_path), content)
-                if success:
-                    log.info("✅ Surgically modified: %s", fc.path)
-                else:
-                    # パッチ適用失敗なら、安全のためにフォールバック（またはエラーに）
-                    log.warning("⚠️ Patch failed for %s. Overwriting instead.", fc.path)
-                    file_path.write_text(content, encoding="utf-8")
-            else:
-                # 🆕 新規作成 or 全上書き
-                file_path.write_text(content, encoding="utf-8")
-                log.info("📝 File written: %s", fc.path)
+        log.info("🏛️  ARK loop complete — Probe ship launched from The Dock: %s", self.dock.path if self.dock else "unknown")
+        return self.dock.path if self.dock else Path(".")
 
     # --------------------------------------------------------- phase methods
 
@@ -379,37 +296,40 @@ class Orchestrator:
         log.info("[RUN]  Terminal Oracle executing code within The Dock …")
         
         # 🏥 外科手術エンジンを使用した書き出し
-        self._write_artifacts(self._workspace, code.files)
-        
-        if any(f.path.endswith("requirements.txt") for f in code.files):
-            self._terminal.execute_command("pip install -r requirements.txt")
+        if self.dock:
+            self.dock.write_artifacts(code.files)
+            
+            if any(f.path.endswith("requirements.txt") for f in code.files):
+                self.dock.terminal.execute_command("pip install -r requirements.txt")
 
-        main_file = next((f.path for f in code.files if f.path.endswith(".py")), None)
-        if not main_file:
-            return RunResult(exit_code=-1, stdout="", stderr="No python file found", duration=0)
+            main_file = next((f.path for f in code.files if f.path.endswith(".py")), None)
+            if not main_file:
+                return RunResult(exit_code=-1, stdout="", stderr="No python file found", duration=0)
+            
+            script_name = Path(main_file).name
+            result = self.dock.terminal.execute_command(f"python {script_name}")
+            
+            if result.success:
+                print(f"\n--- 🚀 ARK EXECUTION OUTPUT ---\n{result.stdout}\n------------------------------\n")
+            return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
         
-        script_name = Path(main_file).name
-        result = self._terminal.execute_command(f"python {script_name}")
-        
-        if result.success:
-            print(f"\n--- 🚀 ARK EXECUTION OUTPUT ---\n{result.stdout}\n------------------------------\n")
-        return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+        return RunResult(exit_code=-1, stdout="", stderr="Dock not initialized", duration=0)
     
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
         log.info("[COMMIT] Writing final artifacts to The Dock...")
         
-        # 🏥 外科手術エンジンを使用した最終書き出し
-        self._write_artifacts(self._workspace, code.files)
-        
-        committed = [self._workspace / Path(fc.path).name for fc in code.files]
-                
-        try:
-            prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
-            commit_message = self._coder._call_llm(prompt).strip().split("\n")[0]
-            if self._git:
-                self._git.commit(commit_message)
-        except Exception as e:
-            log.error("Commit failed: %s", e)
+        committed = []
+        if self.dock:
+            # 🏥 外科手術エンジンを使用した最終書き出し
+            committed = self.dock.write_artifacts(code.files)
+                    
+            try:
+                prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
+                commit_message = self._coder._call_llm(prompt).strip().split("\n")[0]
+                if self.dock.git:
+                    self.dock.git.commit(commit_message)
+            except Exception as e:
+                log.error("Commit failed: %s", e)
 
         self._state.push_event(Phase.COMMITTING, "OK", f"committed={[str(p) for p in committed]}")
         self._state.save()
