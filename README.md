@@ -89,7 +89,8 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Existing Repo Ingestion:** 既存リポジトリをドックに読み込み、文脈を理解する機能。
     - [x] **Targeted Patching:** `SEARCH/REPLACE` による既存コードの精密修正能力。
     - [x] **Manual PR Link Generation:** Push完了後、ブラウザで即座にPRを作成できる比較URLの自動生成。
-    - [ ] **Context Deep Dive:** AST（抽象構文木）解析による、より深いコード理解と大規模リファクタリングへの対応。- [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **NEW!**
+    - [ ] **Context Deep Dive:** AST（抽象構文木）解析による、より深いコード理解と大規模リファクタリングへの対応。
+- [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **NEW!**
     - **Telescope Calibration (望遠鏡のテスト):** 訓練データに含まれていない最新・超マイナーなライブラリを使用した無茶振りミッションを投下し、望遠鏡（Brave Search）の自律リサーチ＆解決能力を実地検証・強化する。
     - **Memory Garbage Collection (大図書館の整理整頓):** 長期稼働に伴って蓄積されたルールや経験のストレステストと大掃除。重複・矛盾するルールの自律的なパージ機能の実装と、ChromaDBの検索精度（コサイン類似度）の極限チューニング。
 - [ ] **Phase 11 (The Universal Port - MCP Integration):** 🌐 **VISION!**
