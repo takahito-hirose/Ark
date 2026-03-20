@@ -92,6 +92,8 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
 - [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **NEW!**
     - **Telescope Calibration (望遠鏡のテスト):** 訓練データに含まれていない最新・超マイナーなライブラリを使用した無茶振りミッションを投下し、望遠鏡（Brave Search）の自律リサーチ＆解決能力を実地検証・強化する。
     - **Memory Garbage Collection (大図書館の整理整頓):** 長期稼働に伴って蓄積されたルールや経験のストレステストと大掃除。重複・矛盾するルールの自律的なパージ機能の実装と、ChromaDBの検索精度（コサイン類似度）の極限チューニング。
+- [ ] **Phase 11 (The Universal Port - MCP Integration):** 🌐 **VISION!**
+    - **Model Context Protocol (MCP):** MCPを「万能接続ポート」として採用。ターミナルやGit操作だけでなく、Slack通知やデータベース操作、外部ドキュメント検索など、世界中の標準化されたツール（外部機器）をプラグイン感覚で自律的に使いこなす「超・汎用型ガレオン船」への進化。
 
 > **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
