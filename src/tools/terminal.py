@@ -34,10 +34,15 @@ class TerminalOracle:
         self.workspace_path = Path(workspace_path).resolve()
         self.commands_executed = []
         
-        # 🛡️ 仮想環境のパス設定（Windows仕様）
+        # 🛡️ 仮想環境のパス設定（Mac/Windows両対応仕様よ！💋）
         self.venv_dir = self.workspace_path / ".venv"
-        self.venv_python = self.venv_dir / "Scripts" / "python.exe"
-        self.venv_pip = self.venv_dir / "Scripts" / "pip.exe"
+        import os
+        if os.name == 'nt': # Windowsの場合
+            self.venv_python = self.venv_dir / "Scripts" / "python.exe"
+            self.venv_pip = self.venv_dir / "Scripts" / "pip.exe"
+        else: # Mac/Linuxの場合
+            self.venv_python = self.venv_dir / "bin" / "python"
+            self.venv_pip = self.venv_dir / "bin" / "pip"
         
         log.info("Terminal Oracle initialized at: %s", self.workspace_path)
         

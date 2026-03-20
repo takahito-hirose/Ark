@@ -1,56 +1,118 @@
 """
-ARK Dock Management
-===================
-プロジェクトの作業ディレクトリ、ターミナル、Git操作、ファイル書き込み（外科手術）を
-一手に引き受ける「造船所」クラス。
+ARK — Dock (The Autonomous Shipyard)
+====================================
+プロジェクトの「クローン」「環境構築」「ファイル操作」を司る。
+GitHub URL からの自動接岸 (Cloning) 機能を搭載！💋
 """
 
-import logging
-from pathlib import Path
+from __future__ import annotations
 
-from src.core.models import FileChange
-from src.tools.terminal import TerminalOracle
-from src.core.git_tools import GitTool
-from src.core.patch_engine import PatchEngine
+import logging
+import os
+import subprocess
+import shutil
+import re
+from pathlib import Path
+from src.core.models import FileChange, FileAction
+from src.core.git_tools import GitTool # 🌟 修正: git_tools.py に合わせたわよ
+from src.tools.terminal import TerminalOracle # 🌟 修正: src.tools.terminal に移動したわね
 
 log = logging.getLogger("ARK.Dock")
 
 class Dock:
-    def __init__(self, base_workspace: Path, project_id: str):
-        # 1. ワークスペース（ドック）の作成
-        self.path = base_workspace / project_id
-        self.path.mkdir(parents=True, exist_ok=True)
-        
-        log.info("🏗️  Welcome to The Dock: %s", self.path)
+    """プロジェクトの実行環境を管理するドック。"""
 
-        # 2. このドック専用のツールを準備
-        self.terminal = TerminalOracle(workspace_path=self.path)
+    def __init__(self, workspace_root: Path, project_id: str):
+        self.workspace_root = workspace_root
+        self.project_id = project_id
+        self.path = workspace_root / project_id
         self.git = GitTool(self.path)
+        self.terminal = TerminalOracle(self.path)
 
-    def write_artifacts(self, files: list[FileChange]) -> list[Path]:
+    def setup_from_remote(self, repo_url: str) -> bool:
         """
-        生成されたコードをファイルに書き出すわ。
-        パッチ形式なら外科手術、そうでなければ全上書きよ！💋
+        GitHub等からリポジトリをクローンし、環境をセットアップするわ！💋
         """
-        written_paths = []
-        for fc in files:
-            # ファイル名はフラットにドック直下に展開
-            file_path = self.path / Path(fc.path).name
-            content = fc.content
+        log.info(f"⚓️ [Dock] Attempting to dock remote ship: {repo_url}")
+        
+        # 1. クローン実行
+        if self.path.exists():
+            log.warning(f"⚠️ [Dock] Path {self.path} already exists. Skipping clone.")
+        else:
+            try:
+                self.workspace_root.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["git", "clone", repo_url, str(self.path)], check=True)
+                log.info(f"✅ [Dock] Cloned successfully to {self.path}")
+            except Exception as e:
+                log.error(f"❌ [Dock] Failed to clone: {e}")
+                return False
 
-            if "<<<<<<< SEARCH" in content:
-                # 🏥 外科手術（パッチ適用）
-                success = PatchEngine.apply_patches(str(file_path), content)
-                if success:
-                    log.info("✅ Surgically modified: %s", fc.path)
-                else:
-                    log.warning("⚠️ Patch failed for %s. Overwriting instead.", fc.path)
-                    file_path.write_text(content, encoding="utf-8")
+        # 2. 仮想環境 (venv) の構築
+        self._ensure_venv()
+
+        # 3. 作業ブランチの作成 (mainを汚さないのがレディの嗜みよ💋)
+        branch_name = f"ark/task-{self.project_id[:8]}"
+        self.git.create_topic_branch(branch_name)
+        
+        return True
+
+    def _ensure_venv(self):
+        """Pythonの仮想環境を構築して依存関係をインストールするわ。"""
+        # terminal.py 側で自動的に .venv を作ってくれるけど、一応ここでもチェック
+        venv_path = self.path / ".venv"
+        if not venv_path.exists():
+            log.info("🛡️ [Dock] Requesting Terminal Oracle to build shield (venv)...")
+            # TerminalOracle の初期化時または明示的なコマンドで構築
+            self.terminal.execute_command("python -m venv .venv")
+        
+        # requirements.txt があればインストール
+        if (self.path / "requirements.txt").exists():
+            log.info("📦 [Dock] Installing dependencies from requirements.txt...")
+            self.terminal.execute_command("pip install -r requirements.txt")
+
+    def write_artifacts(self, changes: list[FileChange]):
+        """
+        生成されたコードやパッチをファイルに書き込むわ。
+        SEARCH/REPLACE 形式なら、外科手術エンジンを回すわよ！💋
+        """
+        for change in changes:
+            target_path = self.path / change.path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if change.action == FileAction.UPDATE:
+                self._apply_patch(change)
             else:
-                # 🆕 新規作成 or 全上書き
-                file_path.write_text(content, encoding="utf-8")
-                log.info("📝 File written: %s", fc.path)
+                target_path.write_text(change.content, encoding="utf-8")
+                log.info(f"📝 [Dock] File written: {change.path}")
+
+    def _apply_patch(self, change: FileChange):
+        """SEARCH/REPLACE 形式のパッチを適用する外科手術エンジン。"""
+        target_path = self.path / change.path
+        if not target_path.exists():
+            log.error(f"❌ [Dock] Patch target not found: {change.path}")
+            return
+
+        source = target_path.read_text(encoding="utf-8")
+        
+        # 超簡易版のパッチ適用ロジック
+        try:
+            # 🌟 reモジュールが必要だったのでインポートに追加したわ
+            search_pattern = r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE"
+            matches = re.findall(search_pattern, change.content, re.DOTALL)
             
-            written_paths.append(file_path)
+            if not matches:
+                log.warning(f"⚠️ [Dock] No patches found in the content for {change.path}. Overwriting instead.")
+                target_path.write_text(change.content, encoding="utf-8")
+                return
+
+            new_source = source
+            for search_text, replace_text in matches:
+                if search_text in new_source:
+                    new_source = new_source.replace(search_text, replace_text)
+                    log.info(f"✅ [Dock] Surgically modified: {change.path}")
+                else:
+                    log.warning(f"⚠️ [Dock] Patch mismatch in {change.path}. Search block not found.")
             
-        return written_paths
+            target_path.write_text(new_source, encoding="utf-8")
+        except Exception as e:
+            log.error(f"❌ [Dock] Surgery failed: {e}")

@@ -1,1 +1,0 @@
-import sys; print('Err', file=sys.stderr); exit(1)

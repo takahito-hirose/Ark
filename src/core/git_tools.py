@@ -1,7 +1,7 @@
 """
 ARK — Git Tool (The Dock Engine)
 ================================
-Git のローカル操作および GitHub API によるリモートリポジトリの自動生成を担当する。
+Git のローカル操作および GitHub API によるリモートリポジトリの自動生成・PR作成を担当する。
 """
 
 import logging
@@ -19,7 +19,7 @@ class GitTool:
     def __init__(self, workspace_path: Path):
         self.workspace = workspace_path
         self.github_token = os.getenv("GITHUB_TOKEN")
-        self.repo_url: Optional[str] = None  # 👈 🌟 ここでしっかり初期化！
+        self.repo_url: Optional[str] = None
         
         # Git ユーザー設定
         self.user_name = os.getenv("GIT_AUTHOR_NAME", "ARK SYLPH")
@@ -46,6 +46,17 @@ class GitTool:
             log.error("Git command failed: %s\nStderr: %s", " ".join(safe_args), safe_stderr)
             return False
 
+    def get_current_branch(self) -> str:
+        """現在のブランチ名を取得するわよ💋"""
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--show-current"], 
+                cwd=self.workspace, capture_output=True, text=True, check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError:
+            return "main"
+
     def create_remote_repo(self, name: str, description: str, private: bool = True) -> Optional[str]:
         if not self.github_token:
             return None
@@ -67,14 +78,14 @@ class GitTool:
             response = requests.post(url, json=data, headers=headers, timeout=10)
             if response.status_code == 201:
                 repo_data = response.json()
-                self.repo_url = repo_data.get("html_url") # 🌟 URLを保存
+                self.repo_url = repo_data.get("html_url")
                 return repo_data.get("clone_url")
             elif response.status_code == 422:
                 user_res = requests.get("https://api.github.com/user", headers=headers)
                 if user_res.status_code == 200:
                     username = user_res.json().get("login")
                     clone_url = f"https://github.com/{username}/{name}.git"
-                    self.repo_url = f"https://github.com/{username}/{name}" # 🌟 URLを保存
+                    self.repo_url = f"https://github.com/{username}/{name}"
                     return clone_url
                 return None
         except Exception as e:
@@ -93,17 +104,88 @@ class GitTool:
         self._run_git(["remote", "add", "origin", auth_url])
         self._run_git(["branch", "-M", "main"])
 
-    def create_topic_branch(self, task_id: str) -> str:
-        branch_name = f"ark/task-{task_id[:8]}"
-        self._run_git(["checkout", "-b", branch_name])
-        return branch_name
-
     def commit(self, message: str) -> bool:
+        """コミット処理。mainブランチを汚さないよう自動退避するわ！💋"""
+        current_branch = self.get_current_branch()
+
+        # 🚨 main や master にいる場合は、勝手にコミットしないように保護！
+        if current_branch in ["main", "master"]:
+            import uuid
+            safe_branch = f"ark/update-{str(uuid.uuid4())[:8]}"
+            log.info("🛡️ Protecting %s branch! Evacuating to: %s", current_branch, safe_branch)
+            self._run_git(["checkout", "-b", safe_branch])
+
         self._run_git(["add", "."])
         self._run_git(["config", "user.name", self.user_name])
         self._run_git(["config", "user.email", self.user_email])
         return self._run_git(["commit", "-m", message])
 
+    def create_topic_branch(self, task_id: str) -> str:
+        """作業用ブランチを作成（またはリネーム）するわよ💋"""
+        branch_name = f"ark/task-{task_id[:8]}"
+        current_branch = self.get_current_branch()
+
+        if current_branch == branch_name:
+            return branch_name
+            
+        # commit時に自動生成された ark/update-xxx ブランチにいるなら、それをタスクIDのブランチ名にリネームする
+        if current_branch.startswith("ark/update-"):
+            log.info("🔄 Renaming temp branch %s to %s", current_branch, branch_name)
+            self._run_git(["branch", "-m", branch_name])
+            return branch_name
+
+        # それ以外なら新しく切る
+        log.info("🌿 Creating new topic branch: %s", branch_name)
+        self._run_git(["checkout", "-b", branch_name])
+        return branch_name
+
     def push(self, branch_name: str):
         log.info("🚀 Pushing branch %s to origin...", branch_name)
         self._run_git(["push", "-u", "origin", branch_name])
+
+    def create_pull_request(self, branch_name: str, title: str, body: str) -> Optional[str]:
+        """GitHub APIを叩いてPull Requestを自動作成するわよ！💋"""
+        if not self.github_token:
+            log.warning("⚠️ No GITHUB_TOKEN. Skipping PR creation.")
+            return None
+
+        # リモートURLから owner/repo を抽出
+        try:
+            res = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=self.workspace, capture_output=True, text=True)
+            url = res.stdout.strip()
+            if not url: return None
+            
+            # URLのパース
+            url = url.replace("https://github.com/", "").replace(".git", "")
+            if "oauth2:" in url:
+                url = url.split("@")[-1].replace("github.com/", "")
+            
+            owner_repo = url
+        except Exception:
+            return None
+
+        log.info("📝 Creating Pull Request for %s...", owner_repo)
+        api_url = f"https://api.github.com/repos/{owner_repo}/pulls"
+        headers = {
+            "Authorization": f"token {self.github_token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        data = {
+            "title": title,
+            "head": branch_name,
+            "base": "main",  # ターゲットは常にmainを想定
+            "body": body
+        }
+
+        try:
+            response = requests.post(api_url, json=data, headers=headers, timeout=10)
+            if response.status_code == 201:
+                pr_url = response.json().get("html_url")
+                log.info("✅ Pull Request created successfully: %s", pr_url)
+                return pr_url
+            else:
+                log.error("❌ PR Creation failed: %s - %s", response.status_code, response.text)
+                return None
+        except Exception as e:
+            log.error("❌ Error creating PR: %s", e)
+            return None

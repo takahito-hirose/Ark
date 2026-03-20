@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional # 🌟 Callable, Optional を追加！
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
 from src.core.models import CodePayload, PlanPayload
@@ -29,12 +29,13 @@ _SYSTEM_PROMPT = """\
 
 ## 記憶ツールの使用方法（厳守）
 記憶ツールを使用する場合は、レスポンスの中に以下の正確なテキストフォーマットで出力してください。
+⚠️ 注意: 「ルール名」や「ルールの内容」といった言葉をそのまま出力するのではなく、必ずあなた自身がタスク内容から判断して具体的な文字列を記述すること！
 
 1. プロジェクトの新しい「掟」や「前提ルール」を永続化する場合:
-TOOL_CALL: save_core_rule | ルール名 | ルールの内容
+TOOL_CALL: save_core_rule | 具体的なルール名 (例: greeting_style) | 具体的なルールの内容 (例: 挨拶は必ずギャル語で行うこと)
 
 2. 今回のタスクで得られた「成功体験」や「エラー解決の知見」をアーカイブする場合:
-TOOL_CALL: archive_experience | 解決した問題や得られた知見の要約
+TOOL_CALL: archive_experience | 今回のタスクで解決した具体的な問題や、将来役立つ具体的な知見の要約
 
 ## 振り返り対象
 ミッションのゴール: {goal}
@@ -54,14 +55,16 @@ class ReflectorAgent(BaseAgent):
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
         tools: list[Any] | None = None,
-        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
+        on_token_usage: Optional[Callable[[int], None]] = None
     ) -> None:
         super().__init__(
             provider, 
             role="reflector", 
             workspace_path=workspace_path,
-            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
+            on_token_usage=on_token_usage
         )
+        # 🌟 FIX: 親クラスが保存してくれない場合に備えて、明示的に保持するわよ！💋
+        self.workspace_path = workspace_path
         self.tools = tools or []
 
     def reflect(self, plan: PlanPayload, code: CodePayload) -> None:

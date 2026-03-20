@@ -63,10 +63,11 @@ manager = ConnectionManager()
 class MissionRequest(BaseModel):
     goal: str
 
-# 🌟 NEW: フロントエンドのターミナルからの入力用モデル！
+# 🌟 NEW: フロントエンドのターミナルからの入力用モデルに workspace_path を追加！
 class CommandRequest(BaseModel):
     command: str
     mode: str = "ECO"  # デフォルトは無料の ECO にしておくわ💋
+    workspace_path: str | None = None  # 🌟 NEW: UIから送られてくる既存プロジェクトのパス！
 
 # ARKのイベントをWebSocketに中継するコールバック関数
 def create_status_callback(loop: asyncio.AbstractEventLoop):
@@ -110,8 +111,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# 🌟 FIX: 重複していた関数定義を整理し、run_in_executor のエラーを修正！
-async def run_ark_mission(goal: str, mode: str = "ECO"):
+# 🌟 FIX: workspace_path も受け取れるように引数を追加！
+async def run_ark_mission(goal: str, mode: str = "ECO", workspace_path: str | None = None):
     """裏側でARKの自律ループを走らせるわ！🚀"""
     loop = asyncio.get_running_loop()
     
@@ -119,11 +120,11 @@ async def run_ark_mission(goal: str, mode: str = "ECO"):
     orc = Orchestrator(
         on_status_change=create_status_callback(loop),
         on_token_usage=create_token_usage_callback(loop),
-        mode=mode  # 🌟 FIX: 受け取った mode を確実にセット！
+        mode=mode,
+        workspace_path=workspace_path  # 🌟 NEW: Orchestratorにパスをバケツリレー！
     )
     
     # 別のスレッドで実行（Orchestratorがブロッキング処理のため）
-    # 👇 FIX: run_in_executor はキーワード引数を直接受け取れないので、余計なおまけを削除！
     await loop.run_in_executor(None, orc.run, goal)
 
 @app.post("/mission")
@@ -137,11 +138,11 @@ async def start_mission(request: MissionRequest, background_tasks: BackgroundTas
 @app.post("/api/command")
 async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks):
     """HUDターミナルからの指示を受け取って、本物のARKを起動するエンドポイント 💋"""
-    # 👇 ここで受け取ったモードをログに出して確認！
-    logger.info("💬 Command Received from HUD: %s (Mode: %s)", req.command, req.mode)
+    # 👇 ログでパスがちゃんと届いているか確認できるようにしたわ！
+    logger.info("💬 Command Received from HUD: %s (Mode: %s, Target: %s)", req.command, req.mode, req.workspace_path or "New Project")
     
-    # 🌟 FIX: 位置引数ではなく、キーワード引数で確実に mode をバケツリレーするわよ！
-    background_tasks.add_task(run_ark_mission, goal=req.command, mode=req.mode)
+    # 🌟 FIX: workspace_path を一緒に Background Task へ渡す！
+    background_tasks.add_task(run_ark_mission, goal=req.command, mode=req.mode, workspace_path=req.workspace_path)
     
     return {
         "message": f"Mission accepted! ARK is navigating: \'{req.command}\'",

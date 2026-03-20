@@ -1,7 +1,0 @@
-{
-    "comment_style": "すべてのコードコメントの末尾に『💋』を付与すること",
-    "module_separation_principle": "プロジェクトのコードは、機能や役割に応じて明確にモジュール分割し、単一の責務を持たせること",
-    "docstring_standard": "すべての関数、クラス、モジュールには、その目的、引数、戻り値、例外などを詳細に記述したDocstringを付与すること",
-    "edit_block_output_format": "既存ファイルの変更を行う際は、ファイル全体を再生成せず、必ず以下の SEARCH/REPLACE 形式で出力すること。\n<<<<<<< SEARCH\n（変更前の既存コードを正確に引用）\n=======\n（変更後の新しいコード）\n>>>>>>> REPLACE",
-    "external_dependency_management": "プロジェクトで外部ライブラリを使用する場合、`requirements.txt` などの依存関係管理ファイルで明示すること"
-}
