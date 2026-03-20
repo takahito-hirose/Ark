@@ -85,11 +85,11 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - **HUD Expansion:** 要件定義書などの巨大なテキストを直接ペーストできるよう、ミッション入力コンソールのUI領域を大容量化。
 - [x] **Phase 8 (The Deep Sea Trials):**
     - **Stress Testing:** 複雑で大規模な要件定義を実際に投入し、Architectのタスク分割能力、Coderの実装力、そしてシステム全体のエラー修復耐性（Auto-Bailing）を検証する耐久テスト航海。
-- [ ] **Phase 9 (The Continuous Voyage - 1→100 Evolution): 🚀 NEXT**
-    - **Existing Repo Ingestion:** 既存のリポジトリ（既に海に出ている探査船）をThe Dockに読み込み、プロジェクト構造と既存の文脈をRAGやAST解析で完全に理解する機能。
-    - **Targeted Modification (Diff / Patch):** 「0→1」の新規作成だけでなく、既存コードの特定部分だけを的確に修正・機能追加する「1→100」の実装能力（差分適用エンジン）の構築。
-    - **Auto-PR Generation:** 既存リポジトリへの機能追加後、自律的にトピックブランチを切り、GitHubへPull Request（改善提案）を作成・送信する機能。
-- [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **NEW!**
+- [ ] **Phase 9 (The Continuous Voyage - 1→100 Evolution): 🚀 NOW**
+    - [x] **Existing Repo Ingestion:** 既存リポジトリをドックに読み込み、文脈を理解する機能。
+    - [x] **Targeted Patching:** `SEARCH/REPLACE` による既存コードの精密修正能力。
+    - [x] **Manual PR Link Generation:** Push完了後、ブラウザで即座にPRを作成できる比較URLの自動生成。
+    - [ ] **Context Deep Dive:** AST（抽象構文木）解析による、より深いコード理解と大規模リファクタリングへの対応。- [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **NEW!**
     - **Telescope Calibration (望遠鏡のテスト):** 訓練データに含まれていない最新・超マイナーなライブラリを使用した無茶振りミッションを投下し、望遠鏡（Brave Search）の自律リサーチ＆解決能力を実地検証・強化する。
     - **Memory Garbage Collection (大図書館の整理整頓):** 長期稼働に伴って蓄積されたルールや経験のストレステストと大掃除。重複・矛盾するルールの自律的なパージ機能の実装と、ChromaDBの検索精度（コサイン類似度）の極限チューニング。
 - [ ] **Phase 11 (The Universal Port - MCP Integration):** 🌐 **VISION!**

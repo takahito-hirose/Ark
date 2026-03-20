@@ -1,17 +1,16 @@
 """
-ARK — Agents Prompt Core
-=========================
-各エージェント向けのシステムプロンプトおよび命令文を構築するロジック。
-Phase 4-B 以降の「責務の分離」に基づき、Reflector 向けのプロンプトを追加。
+ARK — Agents Prompt Core (Surgical Shield Edition)
+=====================================================
+エージェントの「知能」と「規律」を司るプロンプト工場。
+既存コードを破壊させないための「防護壁」を構築するわよ！💋
 """
 
 from __future__ import annotations
 
 import logging
-import textwrap
+import os
 from pathlib import Path
 from src.core.tools import read_file
-from src.core.models import ExecutionAttempt
 
 log = logging.getLogger("ARK.AgentsCore")
 
@@ -19,16 +18,19 @@ log = logging.getLogger("ARK.AgentsCore")
 # Shared Context Helpers
 # ---------------------------------------------------------------------------
 
-def get_initial_context(workspace_path: Path) -> str:
+def get_initial_context(workspace_path: Path, targets: list[str] | None = None) -> str:
     """
     ワークスペース内の既存ファイルから初期コンテキストを取得します。
     """
+    if targets is None:
+        # デフォルトで探す一般的なファイル
+        targets = ["README.md", "main.py", "requirements.txt"]
+        
     context_parts = []
-    # 主要な設定ファイルやREADME、既存のソースコードをスキャン
-    targets = ["README.md", "main.py", "requirements.txt"]
     
     for target in targets:
         content = read_file(target, workspace_path)
+        # エラーメッセージ("Error: ...")でなければコンテキストに追加
         if not content.startswith("Error:"):
             context_parts.append(f"### File: {target}\n```\n{content}\n```")
     
@@ -38,38 +40,68 @@ def get_initial_context(workspace_path: Path) -> str:
     return "\n\n".join(context_parts)
 
 # ---------------------------------------------------------------------------
-# Architect Prompt
+# Shared Context Helpers
+# ---------------------------------------------------------------------------
+
+def get_file_tree(workspace_path: Path) -> str:
+    """
+    ワークスペース内のファイル構造をスキャンして、LLMが理解しやすいツリー形式で返します。
+    """
+    lines = []
+    ignore_dirs = {".git", ".venv", "__pycache__", "node_modules", ".ark_memory"}
+    
+    try:
+        for root, dirs, files in os.walk(workspace_path):
+            dirs[:] = [d for d in dirs if d not in ignore_dirs]
+            rel_path = os.path.relpath(root, workspace_path)
+            depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
+            indent = "  " * depth
+            
+            folder_name = os.path.basename(root) if rel_path != "." else "root"
+            lines.append(f"{indent}📁 {folder_name}/")
+            
+            sub_indent = "  " * (depth + 1)
+            for f in files:
+                if not f.startswith("."):
+                    lines.append(f"{sub_indent}📄 {f}")
+    except Exception as e:
+        return f"Error scanning workspace: {e}"
+        
+    return "\n".join(lines) if lines else "No files found."
+
+# ---------------------------------------------------------------------------
+# Architect Prompt Builder
 # ---------------------------------------------------------------------------
 
 def build_architect_prompt(goal: str, workspace_path: Path) -> str:
-    """
-    Architect 向けのプロンプトを構築します（初期コンテキスト付き）。
-    """
-    context = get_initial_context(workspace_path)
+    file_tree = get_file_tree(workspace_path)
     
     return f"""\
-あなたはARKフレームワークのArchitect SYLPHです。
-ユーザーのゴールを分析し、実装計画（PlanPayload）を生成してください。
+あなたはARKのArchitect SYLPH。プロジェクトの全資産を把握する最高司令官です。
+既存のコードベースを尊重し、ゴールを達成するための「最小かつ正確な」改修計画を立ててください。
 
-## ワークスペースの初期コンテキスト
-{context}
+## 📂 現在のドック（ワークスペース）の状況
+{file_tree}
 
-## 出力フォーマット（厳守）
-TARGET_FILES: <カンマ区切りのファイルパスリスト>
-CONSTRAINTS: <カンマ区切りの制約リスト>
-ACCEPTANCE: <カンマ区切りの受け入れ基準リスト>
+## 🎯 ミッション
+GOAL: {goal}
+WORKSPACE: {workspace_path}
 
-## 制約
-- ファイルパスは workspace/ からの相対パスで記述
-- Python 3.11+ 対応コードを前提とする
-- 型ヒントを必須とする
+## 🛡️ 計画立案の鉄則（絶対遵守）
+1. 既存ファイル優先の原則: 
+   - 上記ツリーにある `📄` ファイルの内容を変更するのがあなたの仕事です。
+   - 勝手に `workspace/output_...` のような新規ファイルを作ることは避けてください。
+   - 改修対象は、ツリーにあるファイル名を一字一句違わずに TARGET_FILES にリストアップしてください。
 
-## ゴール
-{goal}
+## 📝 出力形式（これ以外は喋るな）
+TARGET_FILES: <ファイル名1>, <ファイル名2>
+CONSTRAINTS: <制約事項>
+ACCEPTANCE: <成功の定義>
 """
 
+
 # ---------------------------------------------------------------------------
-# Coder Prompt
+# Coder Prompt (🔥 超絶強化版 🔥)
 # ---------------------------------------------------------------------------
 
 def build_coder_prompt(
@@ -81,149 +113,143 @@ def build_coder_prompt(
     workspace_path: Path,
     reviewer_feedback: str = ""
 ) -> str:
-    """
-    Coder 向けのプロンプトを構築します（職人モード）。
-    """
-    context = get_initial_context(workspace_path)
+    context = ""
+    for target in target_files:
+        content = read_file(target, workspace_path)
+        if not content.startswith("Error:"):
+            lines = content.splitlines()
+            numbered_content = "\n".join([f"{i+1:3} | {line}" for i, line in enumerate(lines)])
+            context += f"### File: {target} (Current Content)\n"
+            context += f"```python\n{numbered_content}\n```\n\n"
+        else:
+            context += f"### File: {target}\n(This is a new file to be created)\n\n"
+
+    constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "特になし"
     
-    feedback_section = ""
-    if reviewer_feedback:
-        feedback_section = f"\n## 前回のレビュー結果（修正必須）\n{reviewer_feedback}\n"
-
     return f"""\
-あなたはARKフレームワークのCoder SYLPHです。
-あなたは Python のシニアエンジニアとして、最高品質のコードを生成する責務があります。
+あなたはARKのCoder SYLPH、世界最高峰の精密外科医です。
+必ず「SEARCH/REPLACE」パッチを用いて、患者（既存コード）を完璧に治療します。
 
-## ワークスペースの初期コンテキスト
-{context}
+## 🏥 外科手術・成功の鍵（SEARCHブロックの掟）
+1. 完全一致の義務: `<<<<<<< SEARCH` ブロックには、提供されたソースコードから、修正したい部分を「1文字の狂いもなく」完全にコピーしてください。
+2. 行番号は除外: 以下のコードにある左端の行番号（例: `  1 | `）は、パッチに絶対に含めないでください。右側のコード本体だけを抽出します。
+3. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください。
 
-## 出力フォーマット（厳守）
-FILE: <ファイルパス>
+## 💡 完璧な出力例（これと同じ形式で出力すること！）
+FILE: hello.py
 ```python
-<生成するコード全体>
+<<<<<<< SEARCH
+def greet(name: str) -> str:
+    return f"Hello, {{name}}!"
+=======
+def greet(name: str) -> str:
+    # ギャル風に挨拶するょ💋
+    return f"やっほー！{{name}}たん、マジリスペクト！🤟✨"
+>>>>>>> REPLACE
 ```
 
-## 🛠 エンジニアリング品質の義務
-- Python 3.11+ に準拠すること。
-- すべての関数・メソッドに厳密な型ヒント (typing) を付与すること。
-- モジュールおよび公開関数には詳細な docstring を付けること。
-- リビュアーは非常に厳格です。一発でパスする「完璧なコード」を出力してください。
-
-## 実装計画
+## 🎯 今回のオペ内容
 ゴール: {goal}
-対象ファイル: {", ".join(target_files)}
-制約: {", ".join(constraints)}
-受け入れ基準: {", ".join(acceptance)}
+制約: {constraints_text}
 
-## 試行回数
-{retry}回目の実装（0が初回）
-{feedback_section}
+## 🔍 執刀対象の生データ（ここからSEARCH対象を精密に抽出せよ）
+{context}
+
+試行回数: {retry}
+{f"## 前回の失敗フィードバック: {reviewer_feedback}" if reviewer_feedback else ""}
+
+さあ、余計な前置きや解説は一切不要です。パッチだけを出力してください！🚀💋
 """
 
 # ---------------------------------------------------------------------------
-# Remediation Prompt (Self-Healing)
+# Reviewer Prompt
 # ---------------------------------------------------------------------------
 
-def build_remediation_prompt(
+def build_reviewer_prompt(
     goal: str,
-    target_files: list[str],
-    retry: int,
-    workspace_path: Path,
-    failure_reason: str,
-    stacktrace: str,
-    current_source: str,
-    attempt_history: list[ExecutionAttempt] | None = None
+    code_summary: str,
+    acceptance: str,
+    retry: int
 ) -> str:
     """
-    実行エラーが発生した際の修正用プロンプトを構築します。
+    Reviewer 向けのプロンプトを構築します。💋
     """
-    context = get_initial_context(workspace_path)
-    
-    history_section = ""
-    if attempt_history:
-        history_section = "\n## これまでの試行履歴（失敗の記録）\n"
-        for i, attempt in enumerate(attempt_history, 1):
-            history_section += f"""
-### 試行 {i}
-- **エラー**: 
-```
-{attempt.error[:500]}{"..." if len(attempt.error) > 500 else ""}
-```
-- **試したコード**:
-```python
-{attempt.code[:1000]}{"..." if len(attempt.code) > 1000 else ""}
-```
----
-"""
-
     return f"""\
-あなたはARKフレームワークのCoder SYLPHです。
-直前のコード実行でエラーが発生しました。スタックトレースを分析し、問題を修正してください。
+あなたはARKフレームワークのReviewer SYLPHです。
+提出されたコード（またはパッチ）を審査し、実務的な観点からPASS/FAILを判定してください。
 
-## ワークスペースの初期コンテキスト
-{context}
+## 提出されたコード内容
+{code_summary}
 
-## 直近の実行エラー情報
-- **Failure Reason**: {failure_reason}
-- **Stacktrace**:
-```
-{stacktrace}
-```
+## 審査の優先順位（最重要）
+1. **ユーザーのゴール達成**: {goal}
+2. **受け入れ基準の遵守**: {acceptance}
+3. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
 
-## 現在のソースコード
-{current_source}
-{history_section}
+## 判定基準
+- ゴールが達成されており、指示されたルール（💋等）が守られていれば PASS (Score 1.0) とせよ。
+- 致命的な構文エラーや、ゴールの無視がある場合は FAIL とせよ。
+- 型ヒントや docstring が多少不足していても、ゴールと💋ルールが満たされていれば PASS (Score 0.8以上) とし、改善点として ISSUE を挙げるに留めること。
 
-## ⚠️ セルフヒーリング制約
-- 既に試して失敗したアプローチを繰り返さないこと。
-- 型ヒントと docstring の品質を維持したまま修正すること。
-
-## 出力フォーマット
-FILE: <ファイルパス>
-```python
-<修正後のコード全体>
-```
-
-## 実装計画
-ゴール: {goal}
-対象ファイル: {", ".join(target_files)}
+## 出力フォーマット（厳守）
+VERDICT: PASS または FAIL
+SCORE: 0.0〜1.0の数値
+SUMMARY: 審査結果の要約（1行）
+ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省略）
 
 ## 試行回数
-{retry}回目の修正試行（セルフヒーリング）
+{retry}回目のレビュー
 """
 
 # ---------------------------------------------------------------------------
-# Reflector Prompt (Memory Extraction)
+# Remediation Prompt (🔥 パニック防止版 🔥)
+# ---------------------------------------------------------------------------
+
+def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_reason, stacktrace, current_source, attempt_history=None) -> str:
+    target_file = target_files[0] if target_files else "unknown.py"
+    return f"""\
+あなたはARKのCoder SYLPH。前回のパッチがエラーを引き起こしました。緊急オペ（自己修復）を開始します。💋
+
+GOAL: {goal}
+
+【🚨 発生したエラー】
+{failure_reason}
+
+【🔥 スタックトレース】
+{stacktrace}
+
+## 救急処置の指示
+エラーを完治させるための修正パッチを、再度「SEARCH/REPLACE」形式で生成してください。
+パニックにならず、必ずマークダウンのコードブロック(` ```python `)を使って出力してください。謝罪の言葉は不要です。
+
+## 出力フォーマット
+FILE: {target_file}
+```python
+<<<<<<< SEARCH
+<エラーの原因となっている現在のコード>
+=======
+<エラーを修正した正しいコード>
+>>>>>>> REPLACE
+```
+"""
+
+# ---------------------------------------------------------------------------
+# Reflector Prompt
 # ---------------------------------------------------------------------------
 
 def build_reflector_prompt(goal: str, files: list[str], code_summary: str) -> str:
     """
-    Reflector 向けのプロンプトを構築します（記憶抽出用）。
+    Reflector 向けのプロンプト（記憶抽出用）。
     """
     return f"""\
-あなたはARKフレームワークのReflector（振り返り担当）SYLPHです。
-完了したタスクを分析し、将来の航海に役立つ知見やプロジェクトのルールを抽出してください。
+あなたはARKのReflector SYLPHです。今回の経験をアーカイブしてください。
 
-## ミッション情報
+## 記憶ツールの使用
+TOOL_CALL: save_core_rule | ルール名 | 内容
+TOOL_CALL: archive_experience | 知見の要約
+
 ゴール: {goal}
-対象ファイル: {", ".join(files)}
-
-## 最終コードのサマリー
-{code_summary}
-
-## あなたの責務
-今回の経験から「保存すべきルール」や「成功体験」を抽出し、以下のフォーマットで出力してください。
-
-### 記憶ツールの使用フォーマット（正確に出力せよ）
-1. プロジェクトの新しい「掟」や「前提ルール」を永続化する場合:
-TOOL_CALL: save_core_rule | ルール名 | ルールの内容
-
-2. 成功体験や知見をアーカイブする場合:
-TOOL_CALL: archive_experience | 解決した問題や得られた知見の要約
-
-## 思考ガイド
-- ユーザーから「覚えておいて」「これがルールだ」と言われた内容は必ず `save_core_rule` で保存すること。
-- コードの実装で苦労した点や、リビュアーをパスするために必要だった工夫を `archive_experience` で記録すること。
+変更ファイル: {", ".join(files)}
 """
 
 # ---------------------------------------------------------------------------
@@ -232,22 +258,10 @@ TOOL_CALL: archive_experience | 解決した問題や得られた知見の要約
 
 def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
     """
-    Gitコミットメッセージ生成用プロンプト。
+    Gitコミットメッセージ生成用。
     """
     return f"""\
-あなたはARKフレームワークのCoder SYLPHです。
-以下の実装結果を要約し、Gitのコミットメッセージ（1行）を生成してください。
-
-## ゴール
-{goal}
-
-## 変更されたファイル
-{", ".join(files)}
-
-## 制約（厳守）
-- 形式: <type>: <description>
-- type: fix, feat, docs, style, refactor, test, chore
-- 英語で記述すること。
-- 50文字以内。
-- メッセージ1行のみを出力すること。
+ゴール: {goal}
+変更ファイル: {", ".join(files)}
+上記に基づき、1行のGitコミットメッセージを生成せよ。形式: <type>: <description> (English)
 """

@@ -16,123 +16,99 @@ import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional # 🌟 Callable, Optional を追加！
+from typing import TYPE_CHECKING, Any, Optional, Callable
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_coder_prompt, build_remediation_prompt
-from src.core.models import CodePayload, FileAction, FileChange, PlanPayload
+from src.core.models import CodePayload, FileAction, FileChange
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
+    from src.core.models import PlanPayload
 
 log = logging.getLogger("ARK.Coder")
 
-# ---------------------------------------------------------------------------
-# Engineering Quality Rules 💋
-# ---------------------------------------------------------------------------
+# 🌟 Coder用のシステムプロンプト（SEARCH/REPLACE 形式を徹底させるわよ！💋）
+_SYSTEM_PROMPT = """\
+あなたはARKフレームワークの「Coder（職人）」SYLPHです。
+シニアエンジニアとして、Architectのプランに基づき、最高品質のPythonコードを実装してください。
 
-QUALITY_RULE = """
-【エンジニアリング品質の義務】
-1. あなたは Python シニアエンジニアとして、すべての関数・メソッドに厳密な型ヒント (typing) を付与しなければなりません。
-2. モジュールおよびすべての公開関数には、詳細な docstring を付与してください。
-3. リビュアーは非常に厳格であり、型ヒントの欠如を許しません。一発でパスする「完璧なコード」を出力してください。
+## 🛠 行動指針
+1. **ピンポイント変更（SEARCH/REPLACE）の掟**:
+   既存のファイルを修正する場合、ファイル全体を再出力せず、必ず以下の `SEARCH/REPLACE` 形式を使用してください。
+   
+   FILE: ファイルパス
+   ```python
+   <<<<<<< SEARCH
+   （変更前の既存コードを正確に引用）
+   =======
+   （変更後の新しいコード）
+   >>>>>>> REPLACE
+   ```
+
+2. **新規ファイル作成**:
+   既存ファイルにない場合は、通常通り `FILE: パス` の後にコードブロックを出力してください。
+
+3. **品質**:
+   型ヒント (typing)、Docstring、そしてコメントの末尾には必ず「💋」を付けること。
+
+指示を完遂し、コード以外の余計な解説は最小限にしてください。
 """
 
-# ---------------------------------------------------------------------------
-# CoderAgent
-# ---------------------------------------------------------------------------
-
 class CoderAgent(BaseAgent):
-    """実装担当SYLPHエージェント。"""
+    """コード生成を担当するSYLPHエージェント。"""
 
     def __init__(
         self, 
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
-        tools: list[Any] | None = None,
-        on_token_usage: Optional[Callable[[int], None]] = None # 🌟 ここに追加！
+        on_token_usage: Optional[Callable[[int], None]] = None
     ) -> None:
-        super().__init__(
-            provider, 
-            role="coder", 
-            workspace_path=workspace_path,
-            on_token_usage=on_token_usage # 🌟 親クラスにパス渡し！
-        )
-        # 👈 記憶ツールは Reflector が担当するため、Coder 内では保持のみ（使用はしない）にします。
+        super().__init__(provider, role="coder", workspace_path=workspace_path, on_token_usage=on_token_usage)
+        # 🌟 FIX: 親クラスが保存してくれない場合に備えて、明示的に保持するわよ！💋
+        self.workspace_path = workspace_path
 
-    def code(
-        self,
-        plan: PlanPayload,
-        retry: int,
-        reviewer_feedback: str = "",
-    ) -> CodePayload:
-        """実装計画からコードを生成する。"""
-        log.info(
-            "[Coder] Generating code (attempt %d) for: %s",
-            retry + 1, plan.target_files,
-        )
+    def code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
+        """プランに基づきコードを生成する。"""
+        log.info("[Coder] Generating code (attempt %d) for: %s", retry + 1, plan.target_files)
 
-        # 品質ルールを制約に結合
-        constraints = f"{plan.constraints}\n\n{QUALITY_RULE}"
+        prompt = f"Goal: {plan.goal}\nTarget Files: {plan.target_files}\n"
+        if reviewer_feedback:
+            prompt += f"\nReviewer Feedback (Please fix this): {reviewer_feedback}\n"
         
-        prompt = build_coder_prompt(
-            goal=plan.goal,
-            target_files=plan.target_files,
-            constraints=constraints,
-            acceptance=plan.acceptance_criteria,
-            retry=retry,
-            workspace_path=self._workspace_path,
-            reviewer_feedback=reviewer_feedback
-        )
-        
-        # 👈 純粋な LLM 呼び出しのみ（ツール実行ループは不要）
-        response = self._call_llm(prompt)
+        # 既存ファイルのコンテキストを読み取ってプロンプトに注入（外科手術の準備！）
+        for file_path in plan.target_files:
+            content = self._read_file_from_workspace(file_path)
+            if content:
+                prompt += f"\n--- Current content of {file_path} ---\n{content}\n"
+
+        response = self._call_llm(_SYSTEM_PROMPT + "\n\n" + prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
-    def remediate(
-        self,
-        plan: PlanPayload,
-        retry: int,
-        failure_reason: str,
-        stacktrace: str,
-        current_source: str,
-        attempt_history: list = None
-    ) -> CodePayload:
-        """実行エラーを分析し、修正コードを生成する。"""
-        log.info("[Coder] Remediating code (attempt %d) due to: %s", retry, failure_reason)
+    def remediate(self, plan: PlanPayload, retry: int, failure_reason: str, stacktrace: str, current_source: str, attempt_history: list[Any]) -> CodePayload:
+        """実行エラー時の自己修復コードを生成する。"""
+        log.info("[Coder] Self-healing initiated (attempt %d)...", retry + 1)
         
-        enhanced_reason = f"{failure_reason}\n\n※修正時も以下のルールを厳守せよ:\n{QUALITY_RULE}"
+        remedy_prompt = f"""
+実行エラーが発生しました。これを修正してください。💋
 
-        prompt = build_remediation_prompt(
-            goal=plan.goal,
-            target_files=plan.target_files,
-            retry=retry,
-            workspace_path=self._workspace_path,
-            failure_reason=enhanced_reason,
-            stacktrace=stacktrace,
-            current_source=current_source,
-            attempt_history=attempt_history
-        )
-        
-        response = self._call_llm(prompt)
+【エラー内容】
+{failure_reason}
+{stacktrace}
+
+【現在のプラン】
+{plan.goal}
+"""
+        response = self._call_llm(_SYSTEM_PROMPT + "\n\n" + remedy_prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
-    # ------------------------------------------------------------------
-    # Parser
-    # ------------------------------------------------------------------
-
-    def _parse_response(
-        self,
-        response: str,
-        *,
-        plan: PlanPayload,
-        retry: int,
-    ) -> CodePayload:
-        """LLMレスポンスから CodePayload を抽出する。"""
-        target_path = plan.target_files[0] if plan.target_files else "workspace/output.py"
+    def _parse_response(self, response: str, *, plan: PlanPayload, retry: int) -> CodePayload:
+        """
+        LLMレスポンスから CodePayload を抽出する。
+        🌟 賢くなったパースロジックよ！
+        """
         file_changes: list[FileChange] = []
-
-        # あらゆる言語タグ（python, text, txt等）を許容する正規表現 💋
+        
+        # 1. 正規の "FILE: path \n ``` ... ```" 形式を検索
         pattern = r"FILE:\s*([^\n]+)\n```[a-zA-Z0-9_-]*\n(.*?)```"
         matches = re.findall(pattern, response, re.DOTALL | re.IGNORECASE)
 
@@ -140,40 +116,56 @@ class CoderAgent(BaseAgent):
             path = raw_path.strip()
             code = code_body.rstrip()
             if path and code:
-                file_changes.append(
-                    FileChange(path=path, action=FileAction.CREATE, content=code)
-                )
-                log.debug("[Coder] Parsed file: %s (%d bytes)", path, len(code))
+                # SEARCH/REPLACE が含まれているかチェック
+                action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
+                file_changes.append(FileChange(path=path, action=action, content=code))
 
+        # 🌟 2. レジリエンス：もし FILE: タグがないが、コードブロックだけある場合
         if not file_changes:
-            log.warning("[Coder] No valid code blocks found in LLM response — using fallback")
-            file_changes = [self._fallback_file_change(target_path, plan.goal, retry)]
+            # 純粋なコードブロック ``` ... ``` を探す
+            code_blocks = re.findall(r"```[a-zA-Z0-9_-]*\n(.*?)```", response, re.DOTALL)
+            if code_blocks and plan.target_files:
+                # 最初のコードブロックを、最初のターゲットファイルのものと見なす
+                path = plan.target_files[0]
+                code = code_blocks[0].rstrip()
+                action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
+                file_changes.append(FileChange(path=path, action=action, content=code))
+                log.info("[Coder] Resilient parse: Assumed code block belongs to %s", path)
 
-        # 実行対象は .py ファイルを優先
-        py_files = [f.path for f in file_changes if f.path.endswith(".py")]
-        main_script = py_files[0] if py_files else file_changes[0].path if file_changes else "main.py"
+        # 3. それでもダメならフォールバック
+        if not file_changes:
+            log.warning("[Coder] No valid code blocks found — using fallback")
+            target_path = plan.target_files[0] if plan.target_files else "workspace/output.py"
+            file_changes = [self._fallback_file_change(target_path, plan.goal, retry)]
 
         return CodePayload(
             plan_ref=plan.goal[:40],
             files=file_changes,
-            test_command=f"python {main_script}",
+            test_command=f"python {file_changes[0].path}",
             notes=f"Generated by CoderAgent (attempt {retry + 1})",
         )
 
+    def _read_file_from_workspace(self, path: str) -> str | None:
+        """ワークスペースからファイルを読み取る。"""
+        if not self.workspace_path: return None
+        full_path = self.workspace_path / path
+        if full_path.exists():
+            return full_path.read_text(encoding="utf-8")
+        return None
+
     @staticmethod
     def _fallback_file_change(path: str, goal: str, retry: int) -> FileChange:
-        """パース失敗時のフォールバック。"""
+        """エラー時のフォールバック。"""
         content = textwrap.dedent(f"""\
             # ARK — Auto-generated by CoderAgent (fallback)
             # Goal: {goal}
             # Attempt: {retry + 1}
-            \"\"\"ARK generated module.\"\"\"
-
-            def main() -> None:
-                \"\"\"Entry point.\"\"\"
-                print("Hello from ARK CoderAgent!")
+            
+            def greet():
+                # 💋 パースに失敗しちゃったみたい！でも挨拶はするわよ
+                print("Hello from ARK CoderAgent! 💋")
 
             if __name__ == "__main__":
-                main()
+                greet()
         """)
         return FileChange(path=path, action=FileAction.CREATE, content=content)

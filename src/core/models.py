@@ -61,6 +61,7 @@ class FileAction(str, Enum):
     CREATE = "CREATE"
     MODIFY = "MODIFY"
     DELETE = "DELETE"
+    UPDATE = "UPDATE"
 
 
 class IssueSeverity(str, Enum):

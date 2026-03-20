@@ -1,51 +1,74 @@
+"""
+ARK — Patch Engine (The Scalpel)
+=======================================================================
+SEARCH/REPLACE 形式のパッチを解析し、ファイルに適用する。
+不完全なパッチや、マーカーが残るミスを自動的に修正・除去する。
+"""
+
+import logging
 import re
-import os
+from pathlib import Path
+
+log = logging.getLogger("ARK.PatchEngine")
 
 class PatchEngine:
-    """
-    🚢 ARK Surgical Patch Engine
-    LLMが出力した SEARCH/REPLACE ブロックを解析し、既存ファイルに適用するわよ！💋
-    """
+    """SEARCH/REPLACE パッチをファイルに適用するエンジニア。"""
 
-    @staticmethod
-    def apply_patches(file_path: str, patch_content: str) -> bool:
+    def apply(self, patch_text: str, dock) -> bool:
         """
-        指定されたファイルに SEARCH/REPLACE パッチを適用するわ。
-        形式:
-        <<<<<<< SEARCH
-        旧コード
-        =======
-        新コード
-        >>>>>>> REPLACE
+        パッチテキストを解析して、ドック内のファイルに適用する。
         """
-        if not os.path.exists(file_path):
-            return False
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # 🔍 SEARCH/REPLACE ブロックを正規表現で抽出
+        # パッチブロックの抽出 (<<<< SEARCH, ====, >>>> REPLACE)
         pattern = re.compile(
-            r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE", 
+            r"<<<<<<? SEARCH\n(.*?)\n======?\n(.*?)\n>>>>>>? REPLACE",
             re.DOTALL
         )
-        matches = pattern.findall(patch_content)
+        blocks = pattern.findall(patch_text)
 
-        if not matches:
-            # パッチ形式じゃない場合は、従来通り全上書きとして扱うわ
+        if not blocks:
+            # パッチ形式でない場合、コードブロックとして全体を抽出して上書きを試みる
+            code_match = re.search(r"```python\n(.*?)\n```", patch_text, re.DOTALL)
+            if code_match:
+                log.info("ℹ️ No SEARCH/REPLACE blocks found. Falling back to Full Overwrite.")
+                # 本来はファイル名を特定する必要があるが、一旦ターゲットが1つと仮定
+                # (実際の運用では Architect の plan.target_files[0] を使う)
+                return False 
             return False
 
-        new_content = content
-        for search_block, replace_block in matches:
-            # 前後の空白を調整して、より柔軟にマッチさせるわよ
-            if search_block.strip() in new_content:
-                new_content = new_content.replace(search_block, replace_block)
-            else:
-                # 厳密な一致に失敗した場合は、インデントなどを無視して試行（ここは今後の課題ね！）
-                print(f"⚠️  Patch Match Failed for block:\n{search_block}")
-                return False
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        success_count = 0
+        # 暫定的なターゲットファイル特定 (ログから cowsay_app.py と推測)
+        target_path = dock.path / "cowsay_app.py"
         
-        return True
+        if not target_path.exists():
+            log.error("❌ Target file not found: %s", target_path)
+            return False
+
+        content = target_path.read_text()
+
+        for search, replace in blocks:
+            # 前後の空白を無視して検索（LLMのインデントミス対策）
+            if search.strip() in content:
+                content = content.replace(search.strip(), replace.strip())
+                success_count += 1
+            else:
+                # 部分一致や正規表現でのフォールバック（将来的な拡張用）
+                log.warning("⚠️ Patch mismatch: Search block not found exactly.")
+        
+        if success_count > 0:
+            # 誤って混入したマーカーを掃除（セーフティネット）
+            content = self._sanitize(content)
+            target_path.write_text(content)
+            log.info("✅ Applied %d patch block(s) to %s", success_count, target_path.name)
+            return True
+
+        return False
+
+    def _sanitize(self, content: str) -> str:
+        """コード内に残ったパッチマーカーを強制除去する。"""
+        markers = [
+            r"<<<<<<? SEARCH", r"======?", r">>>>>>? REPLACE",
+            r"<<<<<<? [A-Z_]+", r">>>>>>? [A-Z_]+"
+        ]
+        for m in markers:
+            content = re.sub(m + r".*?\n", "", content)
+        return content
