@@ -6,18 +6,9 @@ ARK — Bridge Server (FastAPI)
 
 import sys
 import os
-from pathlib import Path
-
-# 🌟 Pythonパスの強制解決：ここがポイントよ！💋
-# src/api/server.py の親の親 (つまりプロジェクトルート) をパスに追加するわ。
-# これにより、どのディレクトリから実行しても 'src.core...' がインポート可能になるの。
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException, WebSocketDisconnect
@@ -25,19 +16,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# 🚀 パスを解決した後にインポート！
-try:
-    from src.core.orchestrator import Orchestrator
-except ImportError as e:
-    # デバッグ用にパスを表示するわ
-    print(f"DEBUG: Current sys.path: {sys.path}")
-    print(f"DEBUG: Project root resolved as: {project_root}")
-    raise e
+# 🌟 Pythonパスの強制解決：ここがポイントよ！💋
+# src/api/server.py の親の親 (つまりプロジェクトルート) をパスに追加するわ。
+current_dir = Path(__file__).resolve().parent
+project_root = current_dir.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from src.core.orchestrator import Orchestrator
 
 # 環境変数のロード
 load_dotenv()
 
-# ロギング設定
+# ロギング設定 💋
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
@@ -140,12 +131,20 @@ def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str]):
 
 @app.post("/api/command")
 async def handle_command(request: CommandRequest, background_tasks: BackgroundTasks):
+    log.info("💬 Command Received from HUD: %s (Mode: %s, Target: %s)", request.command, request.mode, request.workspace_path or "New Project")
+
+    # 🌟 URL判定：URLならローカルの存在チェックをスルーするわ！💋
     if request.workspace_path:
-        path = Path(request.workspace_path).resolve()
-        if not path.exists():
-            log.warning("🚫 Target path not found: %s", request.workspace_path)
-            raise HTTPException(status_code=400, detail=f"Target path does not exist: {request.workspace_path}")
-        log.info("🔌 Mounting existing project at: %s", path)
+        is_url = request.workspace_path.startswith(("http://", "https://", "git@"))
+        
+        if not is_url:
+            path = Path(request.workspace_path).resolve()
+            if not path.exists():
+                log.warning("🚫 Target path not found: %s", request.workspace_path)
+                raise HTTPException(status_code=400, detail=f"Target path does not exist: {request.workspace_path}")
+            log.info("🔌 Mounting existing local project at: %s", path)
+        else:
+            log.info("🌍 Target is a URL. Skipping local path validation for remote docking.")
 
     background_tasks.add_task(
         run_orchestrator_sync, 
@@ -155,11 +154,8 @@ async def handle_command(request: CommandRequest, background_tasks: BackgroundTa
     )
     return {"status": "accepted", "message": "Mission accepted."}
 
-# 🛠 起動方法のガイド:
-# 1. 直接実行 (パス解決あり): python src/api/server.py
-# 2. Uvicornコマンド (開発用・リロードあり): uvicorn src.api.server:app --reload
 if __name__ == "__main__":
     import uvicorn
     log.info("🧠 ARK Bridge Server starting on http://0.0.0.0:8000")
-    # reload=True を追加したから、以前のコマンドと同じ感覚で開発できるわよ！
+    # 🌟 reload=True にしておけば、ジェニーがコードを変えた時に自動でリフレッシュされるわ！
     uvicorn.run("src.api.server:app", host="0.0.0.0", port=8000, reload=True)

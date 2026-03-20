@@ -1,10 +1,9 @@
 """
-ARK (Autonomous Resilient Kernel) — Core Orchestrator (The Dock Edition)
+ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-新たなプロジェクト（探査船）を動的に生成し、GitHub リポジトリを自動造船する
-『The Dock』機能を搭載したオーケストレーター。
-
-Conforms to: specs/phase5_roadmap.md
+「すべてを浄化し、完璧に同期する」
+グランドフィナーレ・エンジン（Grand Finale Engine）搭載。
+GitToolのバグを回避し、GitHubへのPR作成まで完走させるわ！
 """
 
 from __future__ import annotations
@@ -12,8 +11,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import traceback
+import re
+import shutil
+import shlex
 from pathlib import Path
-from typing import Final, Callable, Protocol
+from typing import Final, Callable, Protocol, Optional
 from dotenv import load_dotenv
 
 # 記憶システムとツールのインポート
@@ -21,25 +24,16 @@ from src.memory import MemoryManager
 from src.tools import memory_tools
 from src.core.dock import Dock
 from src.core.state import ARKState
-
-class StatusCallback(Protocol):
-    def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
-
+from src.core.models import Phase, PlanPayload, CodePayload, ReviewPayload, ReviewStatus, RunResult, ExecutionAttempt
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
 from src.agents.reflector import ReflectorAgent
-
 from src.core.config import ConfigLoader
 from src.core.factory import get_provider
-from src.core.models import (
-    CodePayload,
-    Phase,
-    PlanPayload,
-    ReviewPayload,
-    ReviewStatus,
-    RunResult,
-    ExecutionAttempt,
-)
 from src.core.agents import build_commit_msg_prompt
+
+# 分割したモジュールをインポート
+from src.core.dock_manager import setup_dock
+from src.core.github_publisher import publish_to_github
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -53,7 +47,7 @@ logging.basicConfig(
 log = logging.getLogger("ARK.Orchestrator")
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants & Protocols
 # ---------------------------------------------------------------------------
 
 MAX_RETRIES: Final[int] = 3
@@ -61,9 +55,11 @@ MAX_RETRIES: Final[int] = 3
 class CircuitBreakerTripped(RuntimeError): pass
 class OrchestratorBlocked(RuntimeError): pass
 
+class StatusCallback(Protocol):
+    def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
 
 # ---------------------------------------------------------------------------
-# Orchestrator (The Dock Edition)
+# Orchestrator (Grand Finale Engine)
 # ---------------------------------------------------------------------------
 
 class Orchestrator:
@@ -76,63 +72,34 @@ class Orchestrator:
         mode: str = "ECO"
     ) -> None:
         self._cfg = ConfigLoader.load(config_path)
-        
-        # モードに応じて Config (使用モデル) を動的切り替え
         self.mode = mode.upper()
-        if self.mode == "RICH":
-            log.info("💎 RICH MODE ACTIVATED: Unleashing the power of Cloud LLMs!")
-            self._cfg.architect_provider = "gemini"
-            self._cfg.coder_provider = "gemini"
-            self._cfg.reviewer_provider = "gemini"
-            self._cfg.reflector_provider = "gemini"
-            
-            self._cfg.architect_model = "gemini-2.5-flash"
-            self._cfg.coder_model = "gemini-2.5-flash"
-            self._cfg.reviewer_model = "gemini-2.5-flash"
-            self._cfg.reflector_model = "gemini-2.5-flash"
-            
-            self._cfg.architect_model_gemini = "gemini-2.5-flash"
-            self._cfg.coder_model_gemini = "gemini-2.5-flash"
-            self._cfg.reviewer_model_gemini = "gemini-2.5-flash"
-            self._cfg.reflector_model_gemini = "gemini-2.5-flash"
-        else:
-            log.info("🌱 ECO MODE ACTIVATED: Conserving treasury with Local LLMs.")
+        self.target_input = str(workspace_path) if workspace_path else ""
+        self.is_url = self.target_input.startswith(("http://", "https://", "git@"))
 
-        # Target Path (UIから送られた既存プロジェクトのパス) を保持！
-        self._target_path = Path(workspace_path).resolve() if workspace_path else None
-        # ベースのワークスペースは、ターゲットパスがあればそれを優先、なければデフォルト
-        self._base_workspace = self._target_path or Path(self._cfg.workspace_path).resolve()
+        if self.is_url:
+            self._base_workspace = Path(self._cfg.workspace_path).resolve()
+        else:
+            target_path = Path(workspace_path).resolve() if workspace_path else None
+            self._base_workspace = target_path or Path(self._cfg.workspace_path).resolve()
         
         self.on_status_change = on_status_change
         self.on_token_usage = on_token_usage
-        
-        # 状態管理（状態はベースワークスペース直下に置く）
         self._state = ARKState(self._base_workspace)
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
 
-        # 🧠 記憶システム
         self._memory = MemoryManager(base_dir=self._base_workspace / ".ark_memory")
         memory_tools.inject_memory_manager(self._memory)
-        log.info("🧠 Memory System initialized at %s", self._base_workspace / ".ark_memory")
 
-        ark_tools = [
-            memory_tools.save_core_rule,
-            memory_tools.archive_experience,
-            memory_tools.recall_memory
-        ]
-
-        # エージェントの初期化
         self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=ark_tools, on_token_usage=self.on_token_usage)
+        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=[], on_token_usage=self.on_token_usage)
         
         self.dock: Dock | None = None 
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
         self._base_workspace.mkdir(parents=True, exist_ok=True)
-
         if resume:
             self._state.load()
         else:
@@ -142,221 +109,176 @@ class Orchestrator:
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
         
-        # 🧠 記憶の引き出し
         core_rules = self._memory.load_core_rules_prompt()
         if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
             goal = f"{goal}\n\n{core_rules}"
-            log.info("🧠 コアルールをミッション（Goal）に注入しました！")
 
         log.info("=" * 60)
-        log.info("🚀  ARK Autonomous Loop (The Dock Edition) — task %s", self._state.task_id)
-        log.info("    MODE: %s", self.mode)
-        log.info("    GOAL: %s", goal)
+        log.info("🚀  ARK Autonomous Loop (Grand Finale)")
+        log.info(f"    GOAL: {goal}")
         log.info("=" * 60)
 
-        # ── PHASE 1: PLANNING ─────────────────────────────────────────────
-        self._state.transition(Phase.PLANNING)
-        plan = self._phase_plan(goal)
+        try:
+            # ── PHASE 1: PLANNING ─────────────────────────────────────────────
+            self._update_phase(Phase.PLANNING, "START", "Drafting mission blueprint...")
+            plan = self._phase_plan(goal)
 
-        # 🏗️ [The Dock] プロジェクトディレクトリ（造船ドック）の動的マウント/生成
-        if self._target_path and self._target_path.exists():
-            # UPDATE MODE (既存プロジェクトをそのままマウント)
-            log.info("🔌 UPDATE MODE: Mounting existing project at %s", self._target_path)
-            self.dock = Dock(self._target_path.parent, self._target_path.name)
-            
-            # 🌟 FIX: ローカルの既存プロジェクトの場合、作業を始める前にここでトピックブランチを切る！💋
-            branch_name = f"ark/task-{self._state.task_id[:8]}"
-            self.dock.git.create_topic_branch(branch_name)
-        else:
-            # 新規造船 Mode
-            project_id = getattr(plan, 'project_name', f"ark-project-{self._state.task_id[:8]}")
-            self.dock = Dock(self._base_workspace, project_id)
-            log.info("🏗️ NEW PROJECT MODE: Creating new dock %s", self.dock.path)
+            # ターゲット固定（迷路混入対策）
+            goal_files = re.findall(r'(\w+\.py)', goal)
+            if goal_files:
+                plan.target_files = goal_files
 
-        # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
-        code_result: CodePayload | None = None
-        last_review: ReviewPayload | None = None
-        execution_feedback: str = ""
-        attempt_history: list[ExecutionAttempt] = []
+            # [Hard Reset] ドックのクリーンアップ
+            dock_id = self._state.task_id[:8]
+            target_dock_path = self._base_workspace / "docks" / f"cloned-{dock_id}"
+            if target_dock_path.exists():
+                log.info("🧹 [Cleansing] Resetting dock path: %s", target_dock_path)
+                shutil.rmtree(target_dock_path)
 
-        while self._state.retry_count < MAX_RETRIES:
-            retry = self._state.retry_count
-            self._state.transition(Phase.CODING)
-            
-            if execution_feedback:
-                code_result = self._coder.remediate(plan, retry, failure_reason="Runtime Error", stacktrace=execution_feedback, current_source=code_result.files[0].content if code_result and code_result.files else "", attempt_history=attempt_history)
-            elif last_review:
-                code_result = self._phase_code(plan, retry, reviewer_feedback=last_review.summary)
-            else:
-                code_result = self._phase_code(plan, retry)
-
-            # RUNNING (ドック内で実行)
-            run_result = self._phase_run(code_result)
-            if not run_result.success:
-                self._state.retry_count += 1
-                retry_msg = f"[🔄 SELF-HEALING] Attempt {self._state.retry_count}/{MAX_RETRIES}"
-                self._state.push_event(Phase.CODING, "FAIL", f"{retry_msg} — Error: {run_result.stderr[:100]}")
-                self._state.save()
-                
-                if code_result and code_result.files:
-                    attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=run_result.stderr, attempt_number=self._state.retry_count))
-                
-                execution_feedback = run_result.stderr
-                if self._state.retry_count >= MAX_RETRIES: break
-                continue
-            
-            execution_feedback = ""
-
-            # REVIEWING
-            self._state.transition(Phase.REVIEWING)
-            review = self._phase_review(code_result, retry, plan)
-            last_review = review
-
-            if review.status == ReviewStatus.PASS:
-                log.info("✅  Review PASSED  (score=%.2f)", review.score)
-                self._state.push_event(Phase.REVIEWING, "PASS", review.summary)
-                self._state.save()
-                break
-
-            self._state.retry_count += 1
-            self._state.save()
-
-            if self._state.retry_count >= MAX_RETRIES:
-                self._state.transition(Phase.BLOCKED)
-                raise CircuitBreakerTripped("Circuit Breaker tripped.")
-
-        # ── PHASE 4: COMMIT & PUSH (造船完了と射出) ──────────────────────────
-        self._state.transition(Phase.COMMITTING)
-        assert code_result is not None
-        
-        # 新規作成時のみリポジトリを作成（既存の場合は何もしない）
-        if not resume and self.dock and self.dock.git and os.getenv("GITHUB_TOKEN") and not self._target_path:
-            repo_url = self.dock.git.create_remote_repo(
-                name=self.dock.path.name,
-                description=f"ARK Generated Project: {plan.goal[:50]}..."
+            self.dock = setup_dock(
+                target_input=self.target_input,
+                base_workspace=self._base_workspace,
+                task_id=self._state.task_id,
+                plan_project_name=getattr(plan, 'project_name', None)
             )
-            if repo_url:
-                self.dock.git.setup_dock(repo_url)
 
-        # ローカルにファイルを書き込んでコミット！
-        committed = self._phase_commit(code_result, plan.goal)
+            # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
+            code_result: CodePayload | None = None
+            last_review: ReviewPayload | None = None
+            execution_feedback: str = ""
+            reviewer_feedback: str = ""
+            attempt_history: list[ExecutionAttempt] = []
 
-        # 🚀 GitHub へプッシュ ＆ PR作成！💋
-        if self.dock and self.dock.git and os.getenv("GITHUB_TOKEN"):
-            log.info("[THE DOCK] Launching probe ship to GitHub...")
-            branch_name = self.dock.git.create_topic_branch(self._state.task_id)
-            self.dock.git.push(branch_name)
-            
-            # PRの自動作成！
-            pr_title = f"ARK Auto-Update: {plan.goal[:40]}..."
-            pr_body = f"## ARK Autonomous Update 🚢\n\n**Mission:**\n{plan.goal}\n\n**Task ID:** `{self._state.task_id}`\n\n*Auto-generated by Project ODISSEY*"
-            pr_url = self.dock.git.create_pull_request(branch_name, pr_title, pr_body)
+            while self._state.retry_count < MAX_RETRIES:
+                retry = self._state.retry_count
+                self._update_phase(Phase.CODING, "START", f"Surgical Implementation (Attempt {retry+1})")
+                
+                # [Source Loading] 修正対象の現在のコードを読み込む
+                # 🌟 [Fix] Dock側で安全にサニタイズされるため、危険な正規表現による上書き処理を削除
+                current_source = ""
+                if plan.target_files and self.dock:
+                    target_file = self.dock.path / plan.target_files[0]
+                    if target_file.exists():
+                        current_source = target_file.read_text(encoding="utf-8")
+
+                prompt_aug = f"\n\n### Current SOURCE of {plan.target_files[0]}:\n```python\n{current_source}\n```" if current_source else ""
+                
+                if execution_feedback:
+                    code_result = self._coder.remediate(plan, retry, failure_reason="Execution Error", stacktrace=execution_feedback, current_source=current_source, attempt_history=attempt_history)
+                else:
+                    code_result = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback + prompt_aug)
+
+                # 🚀 RUNNING
+                self._state.push_event(Phase.CODING, "RUNNING", "Validating artifacts...")
+                self._state.save()
+                
+                run_result = self._phase_run(code_result)
+                if not run_result.success:
+                    self._state.retry_count += 1
+                    err_msg = run_result.stderr if run_result.stderr else run_result.stdout
+                    self._state.push_event(Phase.CODING, "FAIL", f"Fail: {err_msg[:80]}...")
+                    self._state.save()
+                    
+                    if code_result and code_result.files:
+                        attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=err_msg, attempt_number=self._state.retry_count))
+                    execution_feedback = err_msg
+                    continue
+                
+                execution_feedback = ""
+
+                # 🔍 REVIEWING
+                self._update_phase(Phase.REVIEWING, "START", "Auditing results...")
+                review = self._phase_review(code_result, retry, plan)
+                last_review = review
+
+                if review.status == ReviewStatus.PASS:
+                    self._state.push_event(Phase.REVIEWING, "PASS", "Perfect!")
+                    self._state.save()
+                    break
+
+                reviewer_feedback = review.summary
+                self._state.retry_count += 1
+                self._state.save()
+
+            if self._state.retry_count >= MAX_RETRIES and (not last_review or last_review.status != ReviewStatus.PASS):
+                self._state.transition(Phase.BLOCKED)
+                self._state.save()
+                raise CircuitBreakerTripped(f"Surgery could not be stabilized. ")
+
+            # ── PHASE 4: COMMITTING ───────────────────────────────────────────
+            self._update_phase(Phase.COMMITTING, "START", "Finalizing sync...")
+            assert code_result is not None
+            self._phase_commit(code_result, plan.goal)
+
+            is_new_project = not self.is_url and not (self.dock.path.exists() and (self.dock.path / ".git").exists())
+            pr_url = publish_to_github(self.dock, self._state.task_id, plan.goal, is_new_project, self.is_url)
             
             if pr_url:
-                log.info("🎉 Pull Request Ready: %s", pr_url)
-                self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"PR Created: {pr_url}")
-            elif self.dock.git.repo_url:
-                clean_url = self.dock.git.repo_url.split("@")[-1] if "@" in self.dock.git.repo_url else self.dock.git.repo_url
-                clean_url = "https://" + clean_url if not clean_url.startswith("http") else clean_url
-                self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"Probe ship launched to: {clean_url}")
-            else:
-                self._state.push_event(Phase.COMMITTING, "DEPLOYED", "Probe ship launched to GitHub.")
+                # 💋 PR作成リンク（Compare URL）であることを明示！
+                self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"Create PR 👉 {pr_url}")
+                self._state.save()
 
-        # ── PHASE 5: REFLECT ──────────────────────────────────────────────
-        log.info("[REFLECT] 振り返りフェーズ開始...")
-        self._reflector.reflect(plan, code_result)
-        self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge archived.")
+            # ── PHASE 5: REFLECT ──────────────────────────────────────────────
+            self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge archiving...")
+            self._state.save()
+            self._reflector.reflect(plan, code_result)
+
+            self._update_phase(Phase.DONE, "FINISH", "Mission successful. Probe ship docked. ⚓️💋")
+            return self.dock.path if self.dock else Path(".")
+
+        except Exception as e:
+            log.error(traceback.format_exc())
+            self._state.transition(Phase.DONE)
+            self._state.save()
+            raise e
+
+    # --------------------------------------------------------- Helpers
+
+    def _update_phase(self, phase: Phase, status: str, detail: str):
+        self._state.transition(phase)
+        self._state.push_event(phase, status, detail)
         self._state.save()
-
-        self._state.transition(Phase.DONE)
-        log.info("🏛️  ARK loop complete — Probe ship anchored at: %s", self.dock.path if self.dock else "unknown")
-        return self.dock.path if self.dock else Path(".")
-
-    # --------------------------------------------------------- phase methods
 
     def _phase_plan(self, goal: str) -> PlanPayload:
-        log.info("[PLAN]  Architect generating PlanPayload …")
         plan = self._architect.plan(goal, task_id=self._state.task_id)
-        self._state.push_event(Phase.PLANNING, "OK", f"target_files={plan.target_files}")
-        self._state.save()
+        self._state.push_event(Phase.PLANNING, "OK", f"Target: {plan.target_files}")
         return plan
 
-    def _phase_code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
-        log.info("[CODE]  Coder synthesising code …")
-        code = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback)
-        self._state.push_event(Phase.CODING, "OK", f"files={[f.path for f in code.files]}")
-        self._state.save()
-        return code
-
-    def _phase_review(self, code: CodePayload, retry: int, plan: PlanPayload) -> ReviewPayload:
-        log.info("[REVIEW] Reviewer auditing output …")
-        review = self._reviewer.review(code, retry, plan=plan)
-        return review
-
     def _phase_run(self, code: CodePayload) -> RunResult:
-        log.info("[RUN]  Terminal Oracle executing code within The Dock …")
-        
-        if self.dock:
-            # 🏥 外科手術エンジンを使用した書き出し (patch_engine が内部で呼ばれる)
+        if not self.dock: return RunResult(exit_code=-1, stdout="", stderr="No Dock", duration=0)
+        try:
             self.dock.write_artifacts(code.files)
-            
-            if any(f.path.endswith("requirements.txt") for f in code.files):
-                self.dock.terminal.execute_command("pip install -r requirements.txt")
+        except Exception as e:
+            return RunResult(exit_code=1, stdout="", stderr=f"Dock write error: {e}", duration=0)
 
-            # 🌟 FIX: パッチ当てた対象ファイルが、そのまま単独で実行できるとは限らないわ。
-            # 今回は無理に実行してエラーで無限ループするのを防ぐため、エントリーポイント以外はパスさせる！
-            main_file = next((f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")), None)
-            
-            if not main_file:
-                log.info("⚠️ [Dock] No obvious entry point found. Skipping automated run test.")
-                return RunResult(exit_code=0, stdout="Skipped execution", stderr="", duration=0)
-            
-            script_name = Path(main_file).name
-            
-            # TODO: 既存の大きなプロジェクトの場合、本来は pytest 等を走らせるのが正解ね💋
-            result = self.dock.terminal.execute_command(f"python {script_name}")
-            
-            if result.success:
-                print(f"\n--- 🚀 ARK EXECUTION OUTPUT ---\n{result.stdout}\n------------------------------\n")
-            else:
-                log.warning("⚠️ [Dock] Execution returned an error, proceeding to self-healing.")
-
-            return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+        main_file = next((f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")), None)
+        if not main_file: return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
         
-        return RunResult(exit_code=-1, stdout="", stderr="Dock not initialized", duration=0)
+        file_name = Path(main_file).name
+        
+        # 🌟 [Fix] グローバルPythonではなく、仮想環境のPythonを使って実行するわ！
+        python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
+        log.info(f"🧪 [Run] Executing via venv: {python_cmd} {file_name}")
+        result = self.dock.terminal.execute_command(f"{python_cmd} {file_name}")
+        
+        return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
     
+    def _phase_review(self, code: CodePayload, retry: int, plan: PlanPayload) -> ReviewPayload:
+        return self._reviewer.review(code, retry, plan=plan)
+
     def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
-        log.info("[COMMIT] Writing final artifacts to The Dock...")
-        
-        committed = []
-        if self.dock:
-            committed = [self.dock.path / Path(f.path).name for f in code.files]
-                    
-            try:
-                prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
-                commit_message = self._coder._call_llm(prompt).strip().split("\n")[0]
-                if self.dock.git:
-                    self.dock.git.commit(commit_message)
-            except Exception as e:
-                log.error("Commit failed: %s", e)
-
-        self._state.push_event(Phase.COMMITTING, "OK", f"committed={[str(p) for p in committed]}")
-        self._state.save()
-        return committed
-
-def main(argv: list[str] | None = None) -> int:
-    load_dotenv()
-    
-    if argv is None:
-        argv = sys.argv[1:]
-    goal = " ".join(argv) if argv else "Hello World Pythonスクリプトを生成せよ"
-    orc = Orchestrator()
-    try:
-        orc.run(goal)
-    except Exception as e:
-        log.critical("Orchestrator failed: %s", e)
-        return 1
-    return 0
+        if not self.dock: return []
+        try:
+            prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
+            msg = self._coder._call_llm(prompt).strip().split("\n")[0]
+            log.info("📝 [Commit] Recording surgery results...")
+            self.dock.terminal.execute_command("git add .")
+            self.dock.terminal.execute_command(f"git commit -m {shlex.quote(msg)}")
+            return [self.dock.path / Path(f.path).name for f in code.files]
+        except Exception as e:
+            log.warning("Commit failed: %s", e)
+            return []
 
 if __name__ == "__main__":
-    sys.exit(main())
+    load_dotenv()
+    Orchestrator().run(" ".join(sys.argv[1:]) if len(sys.argv) > 1 else "Hello World")

@@ -13,9 +13,11 @@ import subprocess
 import shutil
 import re
 from pathlib import Path
+
+# 内部モジュールのインポート
 from src.core.models import FileChange, FileAction
-from src.core.git_tools import GitTool # 🌟 修正: git_tools.py に合わせたわよ
-from src.tools.terminal import TerminalOracle # 🌟 修正: src.tools.terminal に移動したわね
+from src.core.git_tools import GitTool
+from src.tools.terminal import TerminalOracle
 
 log = logging.getLogger("ARK.Dock")
 
@@ -25,59 +27,93 @@ class Dock:
     def __init__(self, workspace_root: Path, project_id: str):
         self.workspace_root = workspace_root
         self.project_id = project_id
-        self.path = workspace_root / project_id
+        self.path = (workspace_root / project_id).resolve()
         self.git = GitTool(self.path)
         self.terminal = TerminalOracle(self.path)
 
     def setup_from_remote(self, repo_url: str) -> bool:
         """
-        GitHub等からリポジトリをクローンし、環境をセットアップするわ！💋
+        GitHub等からリポジトリを同期し、環境をセットアップする。
+        ディレクトリが空でなくても（.venv等が先行して存在していても）強引にリモートと同期する。
         """
         log.info(f"⚓️ [Dock] Attempting to dock remote ship: {repo_url}")
         
-        # 1. クローン実行
-        if self.path.exists():
-            log.warning(f"⚠️ [Dock] Path {self.path} already exists. Skipping clone.")
-        else:
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.path.mkdir(parents=True, exist_ok=True)
+
+        # 1. リポジトリの同期 (.git がない場合のみ)
+        if not (self.path / ".git").exists():
+            log.info(f"🛰️ [Dock] Initializing and fetching from {repo_url}...")
             try:
-                self.workspace_root.mkdir(parents=True, exist_ok=True)
-                subprocess.run(["git", "clone", repo_url, str(self.path)], check=True)
-                log.info(f"✅ [Dock] Cloned successfully to {self.path}")
+                # git clone はフォルダが空でないと失敗するため、init -> remote add -> fetch で対応
+                subprocess.run(["git", "init"], cwd=self.path, check=True, capture_output=True)
+                
+                # GitToolのメソッドを使って、トークン付きの安全なURLを origin に登録
+                self.git.setup_dock(repo_url)
+                
+                # リモートからファイルを取得
+                log.info("📥 [Dock] Fetching repository data...")
+                subprocess.run(["git", "fetch", "origin"], cwd=self.path, check=True, capture_output=True)
+                
+                # デフォルトブランチ（main か master）を特定してチェックアウト
+                checkout_res = subprocess.run(["git", "checkout", "-f", "main"], cwd=self.path, capture_output=True)
+                if checkout_res.returncode != 0:
+                    subprocess.run(["git", "checkout", "-f", "master"], cwd=self.path, capture_output=True)
+                
+                # 強制的にブランチ名を main に統一
+                subprocess.run(["git", "branch", "-M", "main"], cwd=self.path, capture_output=True)
+                log.info(f"✅ [Dock] Remote repository synchronized perfectly.")
+                
             except Exception as e:
-                log.error(f"❌ [Dock] Failed to clone: {e}")
+                log.error(f"❌ [Dock] Failed to synchronize with remote: {e}")
                 return False
+        else:
+            log.info("⚓️ [Dock] Repository already initialized. Pulling latest...")
+            subprocess.run(["git", "pull", "origin", "main"], cwd=self.path, capture_output=True)
 
         # 2. 仮想環境 (venv) の構築
         self._ensure_venv()
+        # 3. 依存関係のインストール
+        self.install_dependencies()
 
-        # 3. 作業ブランチの作成 (mainを汚さないのがレディの嗜みよ💋)
-        branch_name = f"ark/task-{self.project_id[:8]}"
+        # 4. 作業ブランチの作成
+        clean_id = self.project_id.split('-')[-1]
+        branch_name = f"ark/task-{clean_id}"
         self.git.create_topic_branch(branch_name)
+        log.info(f"🌿 [Dock] Topic branch created/switched: {branch_name}")
         
         return True
 
     def _ensure_venv(self):
-        """Pythonの仮想環境を構築して依存関係をインストールするわ。"""
-        # terminal.py 側で自動的に .venv を作ってくれるけど、一応ここでもチェック
+        """Pythonの仮想環境を構築する。"""
         venv_path = self.path / ".venv"
         if not venv_path.exists():
-            log.info("🛡️ [Dock] Requesting Terminal Oracle to build shield (venv)...")
-            # TerminalOracle の初期化時または明示的なコマンドで構築
-            self.terminal.execute_command("python -m venv .venv")
-        
-        # requirements.txt があればインストール
-        if (self.path / "requirements.txt").exists():
+            log.info("🛡️ [Dock] Building shield (venv) for the ship...")
+            cmd = "python3 -m venv .venv" if os.name != "nt" else "python -m venv .venv"
+            subprocess.run(cmd.split(), cwd=self.path, capture_output=True)
+
+    def install_dependencies(self):
+        """requirements.txt をスキャンして依存関係をインストールする。"""
+        req_file = self.path / "requirements.txt"
+        if req_file.exists():
             log.info("📦 [Dock] Installing dependencies from requirements.txt...")
-            self.terminal.execute_command("pip install -r requirements.txt")
+            venv_path = self.path / ".venv"
+            pip_path = venv_path / "bin" / "pip" if os.name != "nt" else venv_path / "Scripts" / "pip.exe"
+            
+            self.terminal.execute_command(f"{pip_path} install -r requirements.txt")
+            log.info("✅ [Dock] Dependency sync complete.")
 
     def write_artifacts(self, changes: list[FileChange]):
         """
-        生成されたコードやパッチをファイルに書き込むわ。
-        SEARCH/REPLACE 形式なら、外科手術エンジンを回すわよ！💋
+        生成されたコードやパッチをファイルに書き込む。
         """
+        needs_install = False
         for change in changes:
             target_path = self.path / change.path
             target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if change.path == "requirements.txt":
+                needs_install = True
 
             if change.action == FileAction.UPDATE:
                 self._apply_patch(change)
@@ -85,34 +121,68 @@ class Dock:
                 target_path.write_text(change.content, encoding="utf-8")
                 log.info(f"📝 [Dock] File written: {change.path}")
 
+        if needs_install:
+            self.install_dependencies()
+
     def _apply_patch(self, change: FileChange):
-        """SEARCH/REPLACE 形式のパッチを適用する外科手術エンジン。"""
+        """SEARCH/REPLACE 形式のパッチを適用する堅牢な外科手術エンジン。"""
         target_path = self.path / change.path
         if not target_path.exists():
-            log.error(f"❌ [Dock] Patch target not found: {change.path}")
+            log.warning(f"⚠️ [Dock] Patch target not found: {change.path}. Creating instead.")
+            target_path.write_text(self._clean_all_markers(change.content), encoding="utf-8")
             return
 
         source = target_path.read_text(encoding="utf-8")
         
-        # 超簡易版のパッチ適用ロジック
-        try:
-            # 🌟 reモジュールが必要だったのでインポートに追加したわ
-            search_pattern = r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE"
-            matches = re.findall(search_pattern, change.content, re.DOTALL)
-            
-            if not matches:
-                log.warning(f"⚠️ [Dock] No patches found in the content for {change.path}. Overwriting instead.")
-                target_path.write_text(change.content, encoding="utf-8")
-                return
+        patch_pattern = re.compile(
+            r"<{3,}\s*SEARCH[ \t]*\n(.*?)\n={3,}[ \t]*\n(.*?)\n>{3,}\s*REPLACE", 
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        matches = patch_pattern.findall(change.content)
+        
+        if not matches:
+            log.info(f"ℹ️ [Dock] No valid SEARCH/REPLACE blocks in {change.path}. Overwriting.")
+            target_path.write_text(self._clean_all_markers(change.content), encoding="utf-8")
+            return
 
-            new_source = source
-            for search_text, replace_text in matches:
-                if search_text in new_source:
-                    new_source = new_source.replace(search_text, replace_text)
-                    log.info(f"✅ [Dock] Surgically modified: {change.path}")
+        new_source = source
+        success_count = 0
+        
+        for search_text, replace_text in matches:
+            s_block = self._clean_block(search_text)
+            r_block = self._clean_block(replace_text)
+
+            if s_block in new_source:
+                new_source = new_source.replace(s_block, r_block, 1)
+                success_count += 1
+            else:
+                s_stripped = s_block.strip()
+                if s_stripped and s_stripped in new_source:
+                    new_source = new_source.replace(s_stripped, r_block.strip(), 1)
+                    success_count += 1
                 else:
                     log.warning(f"⚠️ [Dock] Patch mismatch in {change.path}. Search block not found.")
-            
+        
+        if success_count > 0:
             target_path.write_text(new_source, encoding="utf-8")
-        except Exception as e:
-            log.error(f"❌ [Dock] Surgery failed: {e}")
+            log.info(f"✅ [Dock] Surgically modified {change.path} ({success_count} blocks).")
+        else:
+            log.error(f"❌ [Dock] All patch blocks failed for {change.path}. Overwriting as fallback.")
+            target_path.write_text(self._clean_all_markers(change.content), encoding="utf-8")
+
+    def _clean_all_markers(self, content: str) -> str:
+        """最終出力からすべてのパッチ用マーカーを掃除する。"""
+        content = re.sub(r"<{3,}\s*SEARCH.*?\n", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"={3,}.*?\n", "", content)
+        content = re.sub(r">{3,}\s*REPLACE.*?\n", "", content, flags=re.IGNORECASE)
+        lines = content.split('\n')
+        cleaned = [l for l in lines if not l.strip().startswith('```')]
+        return '\n'.join(cleaned).strip()
+
+    @staticmethod
+    def _clean_block(block: str) -> str:
+        """ブロック内に紛れ込んだマークダウンタグを除去する。"""
+        lines = block.split('\n')
+        cleaned = [l for l in lines if not l.strip().startswith('```')]
+        return '\n'.join(cleaned)
