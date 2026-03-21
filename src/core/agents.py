@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from src.core.tools import read_file
 
@@ -29,30 +30,36 @@ def get_initial_context(workspace_path: Path, targets: list[str] | None = None) 
     context_parts = []
     
     for target in targets:
-        content = read_file(target, workspace_path)
+        # 常にファイル名のみを対象にする
+        clean_target = Path(target).name
+        content = read_file(clean_target, workspace_path)
         # エラーメッセージ("Error: ...")でなければコンテキストに追加
         if not content.startswith("Error:"):
-            context_parts.append(f"### File: {target}\n```\n{content}\n```")
+            context_parts.append(f"### File: {clean_target}\n```\n{content}\n```")
     
     if not context_parts:
         return "No existing context found in workspace."
     
     return "\n\n".join(context_parts)
 
-# ---------------------------------------------------------------------------
-# Shared Context Helpers
-# ---------------------------------------------------------------------------
-
 def get_file_tree(workspace_path: Path) -> str:
     """
     ワークスペース内のファイル構造をスキャンして、LLMが理解しやすいツリー形式で返します。
+    隔離機能を強化し、他のプロジェクトフォルダを無視します。
     """
     lines = []
+    # 無視するディレクトリ（他プロジェクトのフォルダも含む）
     ignore_dirs = {".git", ".venv", "__pycache__", "node_modules", ".ark_memory"}
     
+    if not workspace_path or not workspace_path.exists():
+        return "No files found (Empty Workspace)."
+
     try:
         for root, dirs, files in os.walk(workspace_path):
-            dirs[:] = [d for d in dirs if d not in ignore_dirs]
+            # 🌟 [Strict Isolation] 
+            # 1. 無視リストにあるもの 2. 他のプロジェクトフォルダ(ark-project-*) を除外
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith("ark-project-")]
+            
             rel_path = os.path.relpath(root, workspace_path)
             depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
             indent = "  " * depth
@@ -73,25 +80,39 @@ def get_file_tree(workspace_path: Path) -> str:
 # Architect Prompt Builder
 # ---------------------------------------------------------------------------
 
-def build_architect_prompt(goal: str, workspace_path: Path) -> str:
+def build_architect_prompt(goal: str, workspace_path: Path, blueprints: str = "") -> str:
+    """
+    Architect 向けのプロンプトを構築します。
+    """
     file_tree = get_file_tree(workspace_path)
     
+    # 新規プロジェクト時のヒントを追加
+    new_project_hint = ""
+    if "📄" not in file_tree:
+        new_project_hint = "\n【🚨 新規ミッション】現在は空のプロジェクトです。適切なファイル名を決めて新規作成してください。\n"
+
+    blueprints_section = ""
+    if blueprints:
+        blueprints_section = f"## 🏗️ プロジェクト設計図 (AST Outlines)\n以下は主要なPythonファイルの構造（クラスと関数）です。コードの全体像の把握に活用してください。\n{blueprints}\n"
+
     return f"""\
 あなたはARKのArchitect SYLPH。プロジェクトの全資産を把握する最高司令官です。
 既存のコードベースを尊重し、ゴールを達成するための「最小かつ正確な」改修計画を立ててください。
-
+{new_project_hint}
 ## 📂 現在のドック（ワークスペース）の状況
 {file_tree}
 
+{blueprints_section}
 ## 🎯 ミッション
 GOAL: {goal}
-WORKSPACE: {workspace_path}
 
 ## 🛡️ 計画立案の鉄則（絶対遵守）
-1. 既存ファイル優先の原則: 
-   - 上記ツリーにある `📄` ファイルの内容を変更するのがあなたの仕事です。
-   - 勝手に `workspace/output_...` のような新規ファイルを作ることは避けてください。
-   - 改修対象は、ツリーにあるファイル名を一字一句違わずに TARGET_FILES にリストアップしてください。
+1. ファイル名のみを出力せよ: 
+   - TARGET_FILES には `hello.py` のように「ファイル名だけ」を書いてください。
+   - `workspace/` などのフォルダ名を含めるとエラーになるので絶対に禁止です。
+
+2. 既存ファイル優先の原則: 
+   - 上記ツリーに `📄` ファイルがある場合は、それを改修対象として優先してください。
 
 ## 📝 出力形式（これ以外は喋るな）
 TARGET_FILES: <ファイル名1>, <ファイル名2>
@@ -101,7 +122,7 @@ ACCEPTANCE: <成功の定義>
 
 
 # ---------------------------------------------------------------------------
-# Coder Prompt (🔥 超絶強化版 🔥)
+# Coder Prompt
 # ---------------------------------------------------------------------------
 
 def build_coder_prompt(
@@ -113,16 +134,22 @@ def build_coder_prompt(
     workspace_path: Path,
     reviewer_feedback: str = ""
 ) -> str:
+    """
+    Coder 向けのプロンプトを構築します。
+    """
     context = ""
     for target in target_files:
-        content = read_file(target, workspace_path)
+        # パスが含まれていても Path(target).name でファイル名だけにする
+        clean_target = Path(target).name
+        content = read_file(clean_target, workspace_path)
+        
         if not content.startswith("Error:"):
             lines = content.splitlines()
             numbered_content = "\n".join([f"{i+1:3} | {line}" for i, line in enumerate(lines)])
-            context += f"### File: {target} (Current Content)\n"
+            context += f"### File: {clean_target} (Current Content)\n"
             context += f"```python\n{numbered_content}\n```\n\n"
         else:
-            context += f"### File: {target}\n(This is a new file to be created)\n\n"
+            context += f"### File: {clean_target}\n(This is a new file to be created. It is currently EMPTY.)\n\n"
 
     constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "特になし"
     
@@ -132,19 +159,16 @@ def build_coder_prompt(
 
 ## 🏥 外科手術・成功の鍵（SEARCHブロックの掟）
 1. 完全一致の義務: `<<<<<<< SEARCH` ブロックには、提供されたソースコードから、修正したい部分を「1文字の狂いもなく」完全にコピーしてください。
-2. 行番号は除外: 以下のコードにある左端の行番号（例: `  1 | `）は、パッチに絶対に含めないでください。右側のコード本体だけを抽出します。
-3. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください。
+2. 新規ファイルの場合: `SEARCH` ブロックの中身を「空（何も書かない）」にしてください。
+3. 行番号は除外: 以下のコードにある左端の行番号（例: `  1 | `）は、パッチに絶対に含めないでください。
+4. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください。
 
-## 💡 完璧な出力例（これと同じ形式で出力すること！）
+## 💡 完璧な出力例（新規ファイル作成）
 FILE: hello.py
 ```python
 <<<<<<< SEARCH
-def greet(name: str) -> str:
-    return f"Hello, {{name}}!"
 =======
-def greet(name: str) -> str:
-    # ギャル風に挨拶するょ💋
-    return f"やっほー！{{name}}たん、マジリスペクト！🤟✨"
+print("やっほー！ARKで新規ファイル作っちゃった💋")
 >>>>>>> REPLACE
 ```
 
@@ -162,53 +186,16 @@ def greet(name: str) -> str:
 """
 
 # ---------------------------------------------------------------------------
-# Reviewer Prompt
-# ---------------------------------------------------------------------------
-
-def build_reviewer_prompt(
-    goal: str,
-    code_summary: str,
-    acceptance: str,
-    retry: int
-) -> str:
-    """
-    Reviewer 向けのプロンプトを構築します。💋
-    """
-    return f"""\
-あなたはARKフレームワークのReviewer SYLPHです。
-提出されたコード（またはパッチ）を審査し、実務的な観点からPASS/FAILを判定してください。
-
-## 提出されたコード内容
-{code_summary}
-
-## 審査の優先順位（最重要）
-1. **ユーザーのゴール達成**: {goal}
-2. **受け入れ基準の遵守**: {acceptance}
-3. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
-
-## 判定基準
-- ゴールが達成されており、指示されたルール（💋等）が守られていれば PASS (Score 1.0) とせよ。
-- 致命的な構文エラーや、ゴールの無視がある場合は FAIL とせよ。
-- 型ヒントや docstring が多少不足していても、ゴールと💋ルールが満たされていれば PASS (Score 0.8以上) とし、改善点として ISSUE を挙げるに留めること。
-
-## 出力フォーマット（厳守）
-VERDICT: PASS または FAIL
-SCORE: 0.0〜1.0の数値
-SUMMARY: 審査結果の要約（1行）
-ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省略）
-
-## 試行回数
-{retry}回目のレビュー
-"""
-
-# ---------------------------------------------------------------------------
-# Remediation Prompt (🔥 パニック防止版 🔥)
+# Remediation Prompt
 # ---------------------------------------------------------------------------
 
 def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_reason, stacktrace, current_source, attempt_history=None) -> str:
-    target_file = target_files[0] if target_files else "unknown.py"
+    """
+    エラー発生時の自己修復用プロンプト。
+    """
+    target_file = Path(target_files[0]).name if target_files else "unknown.py"
     return f"""\
-あなたはARKのCoder SYLPH。前回のパッチがエラーを引き起こしました。緊急オペ（自己修復）を開始します。💋
+あなたはARKのCoder SYLPH。前回のパッチがエラーを引き起こしました。緊急オペを開始します。💋
 
 GOAL: {goal}
 
@@ -219,18 +206,50 @@ GOAL: {goal}
 {stacktrace}
 
 ## 救急処置の指示
-エラーを完治させるための修正パッチを、再度「SEARCH/REPLACE」形式で生成してください。
-パニックにならず、必ずマークダウンのコードブロック(` ```python `)を使って出力してください。謝罪の言葉は不要です。
+エラーを修正した正しいコードを「SEARCH/REPLACE」形式で再生成してください。
+マークダウンのコードブロック(` ```python `)を使って出力してください。
 
 ## 出力フォーマット
 FILE: {target_file}
 ```python
 <<<<<<< SEARCH
-<エラーの原因となっている現在のコード>
+<現在の不具合のあるコード>
 =======
-<エラーを修正した正しいコード>
+<修正した正しいコード>
 >>>>>>> REPLACE
 ```
+"""
+
+# ---------------------------------------------------------------------------
+# Reviewer Prompt
+# ---------------------------------------------------------------------------
+
+def build_reviewer_prompt(
+    goal: str,
+    code_summary: str,
+    acceptance: str,
+    retry: int
+) -> str:
+    """
+    Reviewer 向けのプロンプトを構築。
+    """
+    return f"""\
+あなたはARKフレームワークのReviewer SYLPHです。
+提出されたコードを審査し、実務的な観点からPASS/FAILを判定してください。
+
+## 提出されたコード内容
+{code_summary}
+
+## 審査の優先順位
+1. **ユーザーのゴール達成**: {goal}
+2. **受け入れ基準の遵守**: {acceptance}
+3. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
+
+## 出力フォーマット（厳守）
+VERDICT: PASS または FAIL
+SCORE: 0.0〜1.0の数値
+SUMMARY: 審査結果の要約（1行）
+ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省略）
 """
 
 # ---------------------------------------------------------------------------
