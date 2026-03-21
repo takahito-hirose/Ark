@@ -2,7 +2,8 @@
 ARK — Agents Prompt Core (Surgical Shield Edition)
 =====================================================
 エージェントの「知能」と「規律」を司るプロンプト工場。
-既存コードを破壊させないための「防護壁」を構築するわよ！💋
+既存コードを破壊させないための「防護壁」と、
+Telescope（検索結果）を全ての精霊に同期する「神経系」を統合したわよ！💋
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ def get_initial_context(workspace_path: Path, targets: list[str] | None = None) 
         content = read_file(clean_target, workspace_path)
         # エラーメッセージ("Error: ...")でなければコンテキストに追加
         if not content.startswith("Error:"):
-            context_parts.append(f"### File: {clean_target}\n```\n{content}\n```")
+            context_parts.append(f"### File: {clean_target}\n```python\n{content}\n```")
     
     if not context_parts:
         return "No existing context found in workspace."
@@ -132,7 +133,8 @@ def build_coder_prompt(
     acceptance: list[str],
     retry: int,
     workspace_path: Path,
-    reviewer_feedback: str = ""
+    reviewer_feedback: str = "",
+    search_results: str = "" # 🌟 追加: 検索結果を受け取る！
 ) -> str:
     """
     Coder 向けのプロンプトを構築します。
@@ -144,31 +146,45 @@ def build_coder_prompt(
         content = read_file(clean_target, workspace_path)
         
         if not content.startswith("Error:"):
-            lines = content.splitlines()
-            numbered_content = "\n".join([f"{i+1:3} | {line}" for i, line in enumerate(lines)])
+            # 🌟 [注意] パッチエンジンが行番号を嫌うので、行番号付与はやめる！そのままのソースを渡す💋
             context += f"### File: {clean_target} (Current Content)\n"
-            context += f"```python\n{numbered_content}\n```\n\n"
+            context += f"```python\n{content}\n```\n\n"
         else:
             context += f"### File: {clean_target}\n(This is a new file to be created. It is currently EMPTY.)\n\n"
 
     constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "特になし"
     
+    # 🌟 検索結果セクションの構築
+    search_section = ""
+    if search_results:
+        search_section = f"""
+## 🔭 最新リサーチ結果 (Telescope Insights)
+外界の検索により、以下の最新情報が見つかりました。
+あなたの事前学習データよりも、この情報を**「絶対の正解」**として最優先で採用してください。
+---
+{search_results}
+---
+"""
+
     return f"""\
 あなたはARKのCoder SYLPH、世界最高峰の精密外科医です。
 必ず「SEARCH/REPLACE」パッチを用いて、患者（既存コード）を完璧に治療します。
-
+{search_section}
 ## 🏥 外科手術・成功の鍵（SEARCHブロックの掟）
 1. 完全一致の義務: `<<<<<<< SEARCH` ブロックには、提供されたソースコードから、修正したい部分を「1文字の狂いもなく」完全にコピーしてください。
 2. 新規ファイルの場合: `SEARCH` ブロックの中身を「空（何も書かない）」にしてください。
-3. 行番号は除外: 以下のコードにある左端の行番号（例: `  1 | `）は、パッチに絶対に含めないでください。
-4. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください。
+3. 最新情報の遵守: Telescope Insights がある場合、その内容を必ずコードに反映してください。
+4. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください（コメントの末尾には 💋 をつけること）。
 
-## 💡 完璧な出力例（新規ファイル作成）
+## 💡 完璧な出力例（既存ファイルの修正）
 FILE: hello.py
 ```python
 <<<<<<< SEARCH
+def greet():
+    print("Hello")
 =======
-print("やっほー！ARKで新規ファイル作っちゃった💋")
+def greet():
+    print("やっほー！ARKでパッチ当てちゃった💋")
 >>>>>>> REPLACE
 ```
 
@@ -228,22 +244,27 @@ def build_reviewer_prompt(
     goal: str,
     code_summary: str,
     acceptance: str,
-    retry: int
+    retry: int,
+    search_results: str = "" # 🌟 追加: レビュアーにも検索結果を渡す！
 ) -> str:
     """
     Reviewer 向けのプロンプトを構築。
     """
+    search_hint = f"\n## 🔭 最新リサーチの基準\n以下の情報がコードに正しく反映されているか厳密にチェックしてください:\n{search_results}" if search_results else ""
+
     return f"""\
 あなたはARKフレームワークのReviewer SYLPHです。
 提出されたコードを審査し、実務的な観点からPASS/FAILを判定してください。
+{search_hint}
 
 ## 提出されたコード内容
 {code_summary}
 
 ## 審査の優先順位
-1. **ユーザーのゴール達成**: {goal}
-2. **受け入れ基準の遵守**: {acceptance}
-3. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
+1. **最新仕様の反映**: Telescope Insights（リサーチ結果）がある場合、それが反映されているか（なければFAIL）。
+2. **ユーザーのゴール達成**: {goal}
+3. **受け入れ基準の遵守**: {acceptance}
+4. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
 
 ## 出力フォーマット（厳守）
 VERDICT: PASS または FAIL
@@ -256,12 +277,18 @@ ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省�
 # Reflector Prompt
 # ---------------------------------------------------------------------------
 
-def build_reflector_prompt(goal: str, files: list[str], code_summary: str) -> str:
+def build_reflector_prompt(goal: str, files: list[str], code_summary: str, search_results: str = "") -> str:
     """
     Reflector 向けのプロンプト（記憶抽出用）。
     """
+    search_hint = f"\n## 今回得られた新知見 (Telescope Insights)\n{search_results}\n※この最新仕様とこれまでの書き方の違いなどを優先的にアーカイブすること。" if search_results else ""
+
     return f"""\
 あなたはARKのReflector SYLPHです。今回の経験をアーカイブしてください。
+
+## 記憶すべきポイント{search_hint}
+- 今回実装したコードの工夫や、エラーを解決した知見。
+- ユーザーからの強い要望やプロジェクト独自のルール。
 
 ## 記憶ツールの使用
 TOOL_CALL: save_core_rule | ルール名 | 内容

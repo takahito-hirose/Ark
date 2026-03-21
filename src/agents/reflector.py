@@ -6,7 +6,7 @@ ARK — Reflector Agent (SYLPH)
 責務
 ----
 - 完了したミッション（Goal）と最終的なコード（CodePayload）を分析する。
-- 記憶ツールを自律的に使用し、将来の航海に役立つ知見やコアルールを永続化する。
+- 記憶ツールを自律的に使用し、将来の航海に役立つ知見（Telescopeの検索結果含む）やコアルールを永続化する。💋
 """
 
 from __future__ import annotations
@@ -16,36 +16,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
+from src.core.agents import build_reflector_prompt # 🌟 Canvasで定義した最新のプロンプトを使用！
 from src.core.models import CodePayload, PlanPayload
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
 
 log = logging.getLogger("ARK.Reflector")
-
-_SYSTEM_PROMPT = """\
-あなたはARKフレームワークのReflector（振り返り担当）SYLPHです。
-ミッションが完了した直後に行動し、今回の経験から「将来役立つ知見」や「今後も守るべきプロジェクトのルール」を抽出し、記憶システムに保存するのがあなたの唯一の責務です。
-
-## 記憶ツールの使用方法（厳守）
-記憶ツールを使用する場合は、レスポンスの中に以下の正確なテキストフォーマットで出力してください。
-⚠️ 注意: 「ルール名」や「ルールの内容」といった言葉をそのまま出力するのではなく、必ずあなた自身がタスク内容から判断して具体的な文字列を記述すること！
-
-1. プロジェクトの新しい「掟」や「前提ルール」を永続化する場合:
-TOOL_CALL: save_core_rule | 具体的なルール名 (例: greeting_style) | 具体的なルールの内容 (例: 挨拶は必ずギャル語で行うこと)
-
-2. 今回のタスクで得られた「成功体験」や「エラー解決の知見」をアーカイブする場合:
-TOOL_CALL: archive_experience | 今回のタスクで解決した具体的な問題や、将来役立つ具体的な知見の要約
-
-## 振り返り対象
-ミッションのゴール: {goal}
-最終コードのファイル数: {file_count}
-
-## 思考プロセス
-1. ゴールを振り返り、ユーザーが「これをルールにして」と指定していたか確認する。
-2. 最終コードから、工夫した点や学んだことを抽出する。
-3. 必要な TOOL_CALL を出力する（複数可）。特にルール指定があった場合は必ず `save_core_rule` を実行すること。
-"""
 
 class ReflectorAgent(BaseAgent):
     """振り返り担当SYLPHエージェント。"""
@@ -63,7 +40,6 @@ class ReflectorAgent(BaseAgent):
             workspace_path=workspace_path,
             on_token_usage=on_token_usage
         )
-        # 🌟 FIX: 親クラスが保存してくれない場合に備えて、明示的に保持するわよ！💋
         self.workspace_path = workspace_path
         self.tools = tools or []
 
@@ -71,9 +47,24 @@ class ReflectorAgent(BaseAgent):
         """ゴールとコードを分析し、記憶ツールを実行する。"""
         log.info("[Reflector] Analysing completed task for memory extraction…")
 
-        prompt = _SYSTEM_PROMPT.format(
+        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す
+        search_results = getattr(plan, "search_results", "")
+        
+        # 🌟 変更されたファイルのリストを作成
+        files = [fc.path for fc in code.files]
+        
+        # 🌟 最終的に生成されたコードのサマリーを作成
+        parts = []
+        for fc in code.files:
+            parts.append(f"### File: {fc.path}\n```python\n{fc.content}\n```")
+        code_summary = "\n\n".join(parts) if parts else "(no files)"
+
+        # 🌟 中央工場から最新のプロンプトを生成！検索結果もバケツリレーするわよ💋
+        prompt = build_reflector_prompt(
             goal=plan.goal,
-            file_count=len(code.files)
+            files=files,
+            code_summary=code_summary,
+            search_results=search_results
         )
         
         response = self._call_llm(prompt)
@@ -84,6 +75,8 @@ class ReflectorAgent(BaseAgent):
         tool_executed = False
         for line in response.split("\n"):
             line = line.strip()
+            
+            # 1. 経験のアーカイブ (archive_experience)
             if line.startswith("TOOL_CALL: archive_experience"):
                 parts = line.split("|", 1)
                 if len(parts) == 2:
@@ -97,6 +90,7 @@ class ReflectorAgent(BaseAgent):
                             except Exception as e:
                                 log.error(f"Tool execution failed: {e}")
                                 
+            # 2. コアルールの保存 (save_core_rule)
             elif line.startswith("TOOL_CALL: save_core_rule"):
                 parts = line.split("|", 2)
                 if len(parts) == 3:
