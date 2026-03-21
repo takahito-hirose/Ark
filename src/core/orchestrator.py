@@ -153,8 +153,6 @@ class Orchestrator:
                 retry = self._state.retry_count
                 self._update_phase(Phase.CODING, "START", f"Surgical Implementation (Attempt {retry+1})")
                 
-                # [Source Loading] 修正対象の現在のコードを読み込む
-                # 🌟 [Fix] Dock側で安全にサニタイズされるため、危険な正規表現による上書き処理を削除
                 current_source = ""
                 if plan.target_files and self.dock:
                     target_file = self.dock.path / plan.target_files[0]
@@ -214,7 +212,6 @@ class Orchestrator:
             pr_url = publish_to_github(self.dock, self._state.task_id, plan.goal, is_new_project, self.is_url)
             
             if pr_url:
-                # 💋 PR作成リンク（Compare URL）であることを明示！
                 self._state.push_event(Phase.COMMITTING, "DEPLOYED", f"Create PR 👉 {pr_url}")
                 self._state.save()
 
@@ -256,7 +253,6 @@ class Orchestrator:
         
         file_name = Path(main_file).name
         
-        # 🌟 [Fix] グローバルPythonではなく、仮想環境のPythonを使って実行するわ！
         python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
         log.info(f"🧪 [Run] Executing via venv: {python_cmd} {file_name}")
         result = self.dock.terminal.execute_command(f"{python_cmd} {file_name}")
@@ -270,8 +266,11 @@ class Orchestrator:
         if not self.dock: return []
         try:
             prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
-            msg = self._coder._call_llm(prompt).strip().split("\n")[0]
-            log.info("📝 [Commit] Recording surgery results...")
+            raw_msg = self._coder._call_llm(prompt).strip()
+            # 💋 [Fix] マークダウンのバッククォートを徹底的に掃除
+            msg = raw_msg.replace("```plaintext", "").replace("```", "").strip().split("\n")[0]
+            log.info("📝 [Commit] Recording surgery results: %s", msg)
+            
             self.dock.terminal.execute_command("git add .")
             self.dock.terminal.execute_command(f"git commit -m {shlex.quote(msg)}")
             return [self.dock.path / Path(f.path).name for f in code.files]

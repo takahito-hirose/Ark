@@ -89,20 +89,21 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
         architect_provider: str = "ollama"
         coder_provider: str = "ollama"
         reviewer_provider: str = "ollama"
-        reflector_provider: str = "ollama"  # 👈 New!
+        reflector_provider: str = "ollama"
 
         # --- モデル指定 (Ollama/General) ---
-        architect_model: str = "gemma3:4b"
-        coder_model: str = "qwen2.5-coder:7b"
-        reviewer_model: str = "llama3.2:3b"
-        reflector_model: str = "llama3.2:3b"  # 👈 New!
+        # 🌟 NEW: MacBook Air 最強パーティ編成のデフォルト値！
+        architect_model: str = "qwen3.5:9b"      # 新エース！複雑な設計とAST解析担当
+        coder_model: str = "qwen2.5-coder:7b"    # 不動の天才プログラマー
+        reviewer_model: str = "gemma3:4b"        # 厳格なインスペクター
+        reflector_model: str = "llama3.2:3b"     # 記録係
 
         # --- Gemini 設定 ---
         gemini_api_key: str = ""
-        gemini_model_name: str = "gemini-2.5-flash"  # 🌟 FIX: デフォルトを 2.5 に統一！
+        gemini_model_name: str = "gemini-2.5-flash"
         
         # ロールごとのGeminiモデル指定
-        architect_model_gemini: str = "gemini-2.5-flash"  # 🌟 FIX: 2.5 に統一！
+        architect_model_gemini: str = "gemini-2.5-flash"
         coder_model_gemini: str = "gemini-2.5-flash"
         reviewer_model_gemini: str = "gemini-2.5-flash"
         reflector_model_gemini: str = "gemini-2.5-flash"
@@ -172,13 +173,14 @@ else:  # pragma: no cover
         reviewer_provider: str = "ollama"
         reflector_provider: str = "ollama"
 
-        architect_model: str = "gemma3:4b"
+        # 🌟 NEW: フォールバック側も最強パーティ編成に統一！
+        architect_model: str = "qwen3.5:9b"
         coder_model: str = "qwen2.5-coder:7b"
-        reviewer_model: str = "llama3.2:3b"
+        reviewer_model: str = "gemma3:4b"
         reflector_model: str = "llama3.2:3b"
 
         gemini_api_key: str = ""
-        gemini_model_name: str = "gemini-2.5-flash"  # 🌟 FIX: フォールバック側も 2.5 に統一！
+        gemini_model_name: str = "gemini-2.5-flash"
         architect_model_gemini: str = "gemini-2.5-flash"
         coder_model_gemini: str = "gemini-2.5-flash"
         reviewer_model_gemini: str = "gemini-2.5-flash"

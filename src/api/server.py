@@ -1,11 +1,12 @@
 """
-ARK — Bridge Server (FastAPI)
-=============================
-フロントエンド HUD からの指令を受け取り、オーケストレーターに繋ぐブリッジ。
+ARK — Bridge Server (The Final Fix) 🚀
+=====================================
+1. 通信ループの同期問題を解決
+2. 余計な監視ログを抑制
+3. workspace を監視から除外
 """
 
 import sys
-import os
 import asyncio
 import logging
 from pathlib import Path
@@ -16,8 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# 🌟 Pythonパスの強制解決：ここがポイントよ！💋
-# src/api/server.py の親の親 (つまりプロジェクトルート) をパスに追加するわ。
+# パス解決
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 if str(project_root) not in sys.path:
@@ -25,20 +25,21 @@ if str(project_root) not in sys.path:
 
 from src.core.orchestrator import Orchestrator
 
-# 環境変数のロード
 load_dotenv()
 
-# ロギング設定 💋
+# --- 🤫 ログを静かにさせる設定 ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
+# watchfiles と uvicorn のノイズをカット！💋
+logging.getLogger("watchfiles").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 log = logging.getLogger("ARK.Bridge")
 
 app = FastAPI(title="ARK Neuro-Link API")
 
-# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,7 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# WebSocket 接続管理
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -55,7 +55,7 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        log.info("📡 New HUD client connected to Neuro-Link.")
+        log.info("📡 New HUD client connected.")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -84,29 +84,31 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception as e:
-        log.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
 
-def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str]):
-    """バックグラウンドスレッドでオーケストレーターを実行💋"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str], main_loop: asyncio.AbstractEventLoop):
+    """メインスレッドのループを使って報告するわ！💋"""
+    
     def on_status_change(phase, status, retry_count, detail=""):
-        loop.run_until_complete(manager.broadcast({
-            "type": "ARK_EVENT",
-            "phase": phase.value if hasattr(phase, 'value') else phase,
-            "status": status,
-            "retry_count": retry_count,
-            "detail": detail
-        }))
+        # メインループにブロードキャストを依頼する
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "ARK_EVENT",
+                "phase": phase.value if hasattr(phase, 'value') else phase,
+                "status": status,
+                "retry_count": retry_count,
+                "detail": detail
+            }),
+            main_loop
+        )
 
     def on_token_usage(tokens):
-        loop.run_until_complete(manager.broadcast({
-            "type": "TOKEN_USAGE",
-            "tokens": tokens
-        }))
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "TOKEN_USAGE",
+                "tokens": tokens
+            }),
+            main_loop
+        )
 
     try:
         log.info("🚢 Mission Launch: %s", goal)
@@ -120,42 +122,40 @@ def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str]):
         log.info("🏁 Mission Accomplished.")
     except Exception as e:
         log.error("❌ Orchestrator failed: %s", e)
-        loop.run_until_complete(manager.broadcast({
-            "type": "ARK_EVENT",
-            "phase": "BLOCKED",
-            "status": "CRITICAL_ERROR",
-            "detail": str(e)
-        }))
-    finally:
-        loop.close()
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "ARK_EVENT",
+                "phase": "BLOCKED",
+                "status": "CRITICAL_ERROR",
+                "detail": str(e)
+            }),
+            main_loop
+        )
 
 @app.post("/api/command")
 async def handle_command(request: CommandRequest, background_tasks: BackgroundTasks):
-    log.info("💬 Command Received from HUD: %s (Mode: %s, Target: %s)", request.command, request.mode, request.workspace_path or "New Project")
-
-    # 🌟 URL判定：URLならローカルの存在チェックをスルーするわ！💋
-    if request.workspace_path:
-        is_url = request.workspace_path.startswith(("http://", "https://", "git@"))
-        
-        if not is_url:
-            path = Path(request.workspace_path).resolve()
-            if not path.exists():
-                log.warning("🚫 Target path not found: %s", request.workspace_path)
-                raise HTTPException(status_code=400, detail=f"Target path does not exist: {request.workspace_path}")
-            log.info("🔌 Mounting existing local project at: %s", path)
-        else:
-            log.info("🌍 Target is a URL. Skipping local path validation for remote docking.")
-
+    log.info("💬 Command Received: %s", request.command)
+    
+    # 現在のメインループを取得して渡す
+    main_loop = asyncio.get_running_loop()
+    
     background_tasks.add_task(
         run_orchestrator_sync, 
         request.command, 
         request.mode, 
-        request.workspace_path
+        request.workspace_path,
+        main_loop
     )
-    return {"status": "accepted", "message": "Mission accepted."}
+    return {"status": "accepted"}
 
 if __name__ == "__main__":
     import uvicorn
-    log.info("🧠 ARK Bridge Server starting on http://0.0.0.0:8000")
-    # 🌟 reload=True にしておけば、ジェニーがコードを変えた時に自動でリフレッシュされるわ！
-    uvicorn.run("src.api.server:app", host="0.0.0.0", port=8000, reload=True)
+    # reload=True を使うなら、reload_dirs で src だけを指すのが安全よ！
+    # それでもダメなら reload=False にして手動起動が一番確実💋
+    uvicorn.run(
+        "src.api.server:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        reload_dirs=["src"]
+    )
