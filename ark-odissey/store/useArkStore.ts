@@ -9,20 +9,30 @@ export interface LogEntry {
 
 interface ArkState {
   logs: LogEntry[];
-  // 🌟 修正: バックエンドの定義に合わせて PLANNING などの現在進行形と BLOCKED を追加！
   phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'DONE' | 'BLOCKED';
   isThinking: boolean;
-  hasError: boolean; // 🚨 NEW: エマージェンシー状態を管理するフラグ
+  hasError: boolean;
   goldCoins: number;
   mode: 'ECO' | 'RICH';
   targetDir: string;
+
+  // 🔭 SEARCH APPROVAL STATES
+  isAwaitingSearchApproval: boolean;
+  pendingSearchQuery: string;
+  autoApproveSearch: boolean;
+
   addLog: (log: LogEntry) => void;
   setPhase: (phase: ArkState['phase']) => void;
   setThinking: (val: boolean) => void;
-  setHasError: (val: boolean) => void; // 🚨 NEW
+  setHasError: (val: boolean) => void;
   spendCoins: (amount: number) => void;
   setMode: (mode: 'ECO' | 'RICH') => void;
   setTargetDir: (dir: string) => void;
+  
+  // 🔭 SEARCH ACTIONS
+  setSearchApprovalRequest: (query: string) => void;
+  clearSearchApproval: () => void;
+  toggleAutoApprove: () => void;
 }
 
 export const useArkStore = create<ArkState>((set) => ({
@@ -33,7 +43,11 @@ export const useArkStore = create<ArkState>((set) => ({
   goldCoins: 20000,
   mode: 'ECO',
   targetDir: '',
-  
+
+  isAwaitingSearchApproval: false,
+  pendingSearchQuery: '',
+  autoApproveSearch: false,
+
   addLog: (log) => set((state) => {
     const newLogs = [...state.logs, log];
     return { logs: newLogs.length > 50 ? newLogs.slice(newLogs.length - 50) : newLogs };
@@ -45,4 +59,8 @@ export const useArkStore = create<ArkState>((set) => ({
   spendCoins: (amount) => set((state) => ({ goldCoins: Math.max(0, state.goldCoins - amount) })),
   setMode: (mode) => set({ mode }),
   setTargetDir: (targetDir) => set({ targetDir }),
+
+  setSearchApprovalRequest: (query) => set({ isAwaitingSearchApproval: true, pendingSearchQuery: query }),
+  clearSearchApproval: () => set({ isAwaitingSearchApproval: false, pendingSearchQuery: '' }),
+  toggleAutoApprove: () => set((state) => ({ autoApproveSearch: !state.autoApproveSearch })),
 }));

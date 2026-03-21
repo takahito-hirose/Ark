@@ -80,8 +80,11 @@ class PlanPayload:
     goal:                 str
     spec_path:            str
     target_files:         list[str]
-    constraints:          list[str]
-    acceptance_criteria:  list[str]
+    # 🌟 FIX: デフォルト値を追加して安全にしつつ、新しいポケットを用意したわ！💋
+    constraints:          list[str] = field(default_factory=list)
+    acceptance_criteria:  list[str] = field(default_factory=list)
+    project_name:         str | None = None
+    search_results:       str = ""
 
 
 @dataclass

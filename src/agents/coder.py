@@ -1,7 +1,9 @@
 """
 ARK — Coder Agent (SYLPH)
 ==========================
-実装フェーズを担当するエージェント。解析能力を極限まで高めた強化版よ💋
+実装フェーズを担当するエージェント。解析能力を極限まで高め、
+Telescopeの検索結果（神経系）を完全に同期した強化版よ💋
+SEARCH/REPLACE パッチの検出能力を極限まで高めた外科医仕様よ！
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Callable
 
 from src.agents.base_agent import BaseAgent
+# 🌟 中央のプロンプト工場から、最強の指示書ビルダーをインポート！
+from src.core.agents import build_coder_prompt, build_remediation_prompt
 from src.core.models import CodePayload, FileAction, FileChange
 
 if TYPE_CHECKING:
@@ -20,38 +24,6 @@ if TYPE_CHECKING:
     from src.core.models import PlanPayload
 
 log = logging.getLogger("ARK.Coder")
-
-# 🌟 システムプロンプトを少し優しく、かつ明確にするわよ
-_SYSTEM_PROMPT = """\
-あなたはARKフレームワークのエンジニア「SYLPH」です。
-Architectのプランに基づき、最高品質のPythonコードを実装してください。
-
-## 🛠 出力ルール
-1. **ファイル指定の徹底**:
-   各コードブロックの直前に必ず `FILE: パス` と記述してください。
-   例:
-   FILE: main.py
-   ```python
-   print("hello")
-   ```
-
-2. **既存ファイルの修正 (SEARCH/REPLACE)**:
-   既存ファイルをピンポイントで直す場合は、以下の形式を守ってください。
-   FILE: パス
-   ```python
-   <<<<<<< SEARCH
-   （既存のコード）
-   =======
-   （新しいコード）
-   >>>>>>> REPLACE
-   ```
-   ※ 面倒ならファイル全体を `FILE: パス` + ```python ... ``` で再出力しても構いません。
-
-3. **品質と愛**:
-   型ヒント、Docstring、コメントの末尾には必ず「💋」を付けること。
-
-余計な解説は不要。コードこそがあなたの言葉よ。
-"""
 
 class CoderAgent(BaseAgent):
     """コード生成を担当するSYLPHエージェント。"""
@@ -69,74 +41,105 @@ class CoderAgent(BaseAgent):
         """プランに基づきコードを生成する。"""
         log.info("[Coder] Generating code (attempt %d) for: %s", retry + 1, plan.target_files)
 
-        prompt = f"Goal: {plan.goal}\nTarget Files: {plan.target_files}\n"
-        if reviewer_feedback:
-            prompt += f"\nReviewer Feedback (Please fix this): {reviewer_feedback}\n"
-        
-        for file_path in plan.target_files:
-            content = self._read_file_from_workspace(file_path)
-            if content:
-                prompt += f"\n--- Current content of {file_path} ---\n{content}\n"
+        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す
+        search_results = getattr(plan, "search_results", "")
 
-        response = self._call_llm(_SYSTEM_PROMPT + "\n\n" + prompt)
+        # 🌟 直書きプロンプトを廃止し、中央工場から生成！
+        prompt = build_coder_prompt(
+            goal=plan.goal,
+            target_files=plan.target_files,
+            constraints=plan.constraints if hasattr(plan, "constraints") else [],
+            acceptance=plan.acceptance_criteria if hasattr(plan, "acceptance_criteria") else [],
+            retry=retry,
+            workspace_path=self.workspace_path,
+            reviewer_feedback=reviewer_feedback,
+            search_results=search_results  # 🔭 ここで最新の検索知識を注入！
+        )
+
+        # 🌟 [CRITICAL FIX] Coderくんに「道具の調達」と「パッチ形式」を徹底させる！💋
+        prompt += (
+            "\n\n【⚠️重要・絶対遵守⚠️】\n"
+            "1. 外部ライブラリを使用する場合は、必ず `FILE: requirements.txt` を出力すること。\n"
+            "2. 既存ファイルの修正は、必ず `<<<< SEARCH`, `====`, `>>>> REPLACE` の形式で出力すること。\n"
+            "3. 実行時にユーザー入力を待つ `input()` は絶対に使用禁止。自動実行可能なコードにすること。"
+        )
+
+        response = self._call_llm(prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
     def remediate(self, plan: PlanPayload, retry: int, failure_reason: str, stacktrace: str, current_source: str, attempt_history: list[Any]) -> CodePayload:
         """実行エラー時の自己修復コードを生成する。"""
         log.info("[Coder] Self-healing initiated (attempt %d)...", retry + 1)
         
-        remedy_prompt = f"""
-【緊急事態】実行エラーが発生しました。修正してください。💋
+        prompt = build_remediation_prompt(
+            goal=plan.goal,
+            target_files=plan.target_files,
+            retry=retry,
+            workspace_path=self.workspace_path,
+            failure_reason=failure_reason,
+            stacktrace=stacktrace,
+            current_source=current_source,
+            attempt_history=attempt_history
+        )
 
-エラー内容:
-{failure_reason}
-{stacktrace}
-
-対象ファイル: {plan.target_files}
-"""
-        response = self._call_llm(_SYSTEM_PROMPT + "\n\n" + remedy_prompt)
+        # タイムアウト対策の念押し💋
+        if "Timeout" in failure_reason or "Timeout" in stacktrace:
+            prompt += "\n\n🚨 前回の実行はタイムアウトしたわ。無限ループや外部通信のハング、または input() の待ち状態がないか徹底的にチェックして修正して！"
+        
+        response = self._call_llm(prompt)
         return self._parse_response(response, plan=plan, retry=retry)
 
     def _parse_response(self, response: str, *, plan: PlanPayload, retry: int) -> CodePayload:
         """
-        LLMレスポンスから執念深くコードを抽出するわよ💋
+        LLMレスポンスから執念深くコードとパッチを抽出するわよ💋
         """
         file_changes: list[FileChange] = []
         
-        # 1. まずは「FILE: path」とコードブロックのセットを探す
-        # 正規表現をさらにルーズにして、前後の空白や改行を許容するわ
-        pattern = r"(?:FILE|File|file|FilePath):\s*([^\n\s]+)\s*\n+```[a-zA-Z0-9_-]*\n(.*?)```"
+        # 🌟 1. SEARCH/REPLACE パッチブロックの抽出を優先！
+        # ファイル名がブロックの外にある場合と、中にある場合両方に対応するわ💋
+        patch_pattern = r"(?:FILE|File|file|FilePath)[*:\s]*([^\n\s]+)\s*\n+.*?(<{3,}\s*SEARCH.*?>{3,}\s*REPLACE)"
+        patch_matches = re.findall(patch_pattern, response, re.DOTALL | re.IGNORECASE)
+
+        for raw_path, patch_body in patch_matches:
+            path = raw_path.strip().strip("`").strip("*").strip(":")
+            if path and patch_body:
+                file_changes.append(FileChange(path=path, action=FileAction.UPDATE, content=patch_body.strip()))
+                log.info("[Coder] Parsed patch (UPDATE): %s", path)
+
+        # 🌟 2. 通常の生成形式（FILE: path + コードブロック）
+        updated_paths = {fc.path for fc in file_changes}
+        pattern = r"(?:FILE|File|file|FilePath)[*:\s]*([^\n\s]+)\s*\n+```[a-zA-Z0-9_-]*\n(.*?)```"
         matches = re.findall(pattern, response, re.DOTALL | re.IGNORECASE)
 
         for raw_path, code_body in matches:
-            path = raw_path.strip().strip("`").strip("*") # 装飾を取り除く
+            path = raw_path.strip().strip("`").strip("*").strip(":")
             code = code_body.rstrip()
-            if path and code:
+            if path and code and path not in updated_paths:
+                # ブロックの中に SEARCH が入っている場合も UPDATE として扱う
                 action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
                 file_changes.append(FileChange(path=path, action=action, content=code))
 
-        # 2. 【救済策1】タグはないがコードブロックがある場合
+        # 🌟 3. 【救済策・統合版】タグはないがコードブロックがある場合
         if not file_changes:
             code_blocks = re.findall(r"```[a-zA-Z0-9_-]*\n(.*?)```", response, re.DOTALL)
-            if code_blocks:
-                # ターゲットファイルリストとコードブロックを順番に紐付けるわ
-                for i, block in enumerate(code_blocks):
-                    if i < len(plan.target_files):
-                        path = plan.target_files[i]
-                        code = block.rstrip()
-                        action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
-                        file_changes.append(FileChange(path=path, action=action, content=code))
-                        log.info("[Coder] Resilient map: Block %d -> %s", i, path)
+            for i, block in enumerate(code_blocks):
+                code = block.rstrip()
+                if not code: continue
 
-        # 3. 【救済策2】コードの1行目にファイル名がコメントで入っている場合
-        # Qwenがよくやる "# main.py" みたいなやつを拾うわよ
-        if not file_changes:
-             code_blocks = re.findall(r"```[a-zA-Z0-9_-]*\n(.*?)```", response, re.DOTALL)
-             for block in code_blocks:
-                 first_line = block.split('\n')[0].strip()
-                 if first_line.startswith("#") and any(f in first_line for f in plan.target_files):
-                     path = first_line.replace("#", "").strip()
-                     file_changes.append(FileChange(path=path, action=FileAction.CREATE, content=block))
+                path = ""
+                first_line = code.split('\n')[0].strip()
+                if first_line.startswith(("#", "//")) and "." in first_line:
+                    path = first_line.strip("#/ ").strip()
+
+                if not path and i < len(plan.target_files):
+                    path = plan.target_files[i]
+
+                if not path and ("==" in code or "ascii-magic" in code.lower()):
+                    path = "requirements.txt"
+
+                if path:
+                    action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
+                    file_changes.append(FileChange(path=path, action=action, content=code))
 
         # 4. 最終フォールバック
         if not file_changes:
@@ -150,13 +153,6 @@ class CoderAgent(BaseAgent):
             test_command=f"python {file_changes[0].path}",
             notes=f"Generated by CoderAgent (attempt {retry + 1})",
         )
-
-    def _read_file_from_workspace(self, path: str) -> str | None:
-        if not self.workspace_path: return None
-        full_path = self.workspace_path / path
-        if full_path.exists():
-            return full_path.read_text(encoding="utf-8")
-        return None
 
     @staticmethod
     def _fallback_file_change(path: str, goal: str, retry: int) -> FileChange:

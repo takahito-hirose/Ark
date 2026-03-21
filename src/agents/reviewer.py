@@ -7,7 +7,7 @@ ARK — Reviewer Agent (SYLPH)
 ----
 - :class:`~src.core.models.CodePayload` を受け取りコードを審査し、
   :class:`~src.core.models.ReviewPayload` を返す。
-- ユーザーの目的（Goal）とコアルールの遵守を最優先に評価する。
+- ユーザーの目的（Goal）、コアルール、そして Telescope の検索結果を最優先に評価する。💋
 """
 
 from __future__ import annotations
@@ -60,8 +60,11 @@ class ReviewerAgent(BaseAgent):
             len(code.files), retry + 1,
         )
 
-        # 🌟 ここが重要！提出されたコードの中身をちゃんと文字列化するのよ💋
+        # 🌟 提出されたコードの中身をちゃんと文字列化するのよ💋
         code_summary = self._build_code_summary(code)
+        
+        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す (ここを追加！)
+        search_results = getattr(plan, "search_results", "") if plan else ""
         
         # 🌟 Canvas (src/core/agents.py) で定義した中央集権的なプロンプトを呼び出すわ！
         prompt = build_reviewer_prompt(
@@ -69,6 +72,7 @@ class ReviewerAgent(BaseAgent):
             code_summary=code_summary,
             acceptance=plan.acceptance_criteria if plan else "型ヒント, docstring, 💋ルールの遵守",
             retry=retry,
+            search_results=search_results  # 🔭 ここで最新の検索知識を審査基準として注入！
         )
 
         response = self._call_llm(prompt)
@@ -103,7 +107,7 @@ class ReviewerAgent(BaseAgent):
             score=score,
             summary=summary,
             issues=issues,
-            suggested_fix="指示された機能が不足しているか、ルールが守られていません。修正してください。" if status == ReviewStatus.FAIL else "",
+            suggested_fix="指示された機能が不足しているか、最新の仕様(Telescope Insights)が守られていません。修正してください。" if status == ReviewStatus.FAIL else "",
         )
         log.info(
             "[Reviewer] Verdict=%s score=%.2f summary=%r",

@@ -4,6 +4,8 @@ ARK (Autonomous Resilient Kernel) — Core Orchestrator
 「すべてを浄化し、完璧に同期する」
 グランドフィナーレ・エンジン（Grand Finale Engine）搭載。
 GitToolのバグを回避し、GitHubへのPR作成まで完走させるわ！
+自律的な環境構築（requirements.txtの自動適用）と、
+エージェント間のワークスペース完全同期を実装した強化版よ💋
 """
 
 from __future__ import annotations
@@ -91,10 +93,22 @@ class Orchestrator:
         self._memory = MemoryManager(base_dir=self._base_workspace / ".ark_memory")
         memory_tools.inject_memory_manager(self._memory)
 
+        # 🌟 [CRITICAL FIX] モード連動！ ECOモードなら環境変数をセットして Telescope にテレパシーを送るわ💋
+        is_mock = "1" if self.mode == "ECO" else "0"
+        os.environ["ARK_MOCK_MODE"] = is_mock
+        log.info(f"⚙️ System Mode: {self.mode} / 🔭 Telescope Mock: {'ON' if is_mock == '1' else 'OFF'}")
+
         self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._reflector = ReflectorAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, tools=[], on_token_usage=self.on_token_usage)
+        
+        # 🌟 FIX: プロバイダーを "reflector" に修正し、記憶ツールを完全装備！💋
+        self._reflector = ReflectorAgent(
+            get_provider("reflector", self._cfg), 
+            workspace_path=self._base_workspace, 
+            tools=[memory_tools.save_core_rule, memory_tools.archive_experience], 
+            on_token_usage=self.on_token_usage
+        )
         
         self.dock: Dock | None = None 
 
@@ -141,6 +155,11 @@ class Orchestrator:
                 task_id=self._state.task_id,
                 plan_project_name=getattr(plan, 'project_name', None)
             )
+
+            # 🌟 [CRITICAL FIX] エージェントの視点をドック内に同期する！💋
+            if self.dock:
+                for agent in [self._architect, self._coder, self._reviewer, self._reflector]:
+                    agent._workspace_path = self.dock.path
 
             # ── PHASE 2+3: CODE / REVIEW loop ─────────────────────────────────
             code_result: CodePayload | None = None
@@ -248,14 +267,19 @@ class Orchestrator:
         except Exception as e:
             return RunResult(exit_code=1, stdout="", stderr=f"Dock write error: {e}", duration=0)
 
+        req_file = next((f for f in code.files if f.path == "requirements.txt"), None)
+        python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
+        pip_cmd = ".venv/bin/pip" if os.name != "nt" else ".venv\\Scripts\\pip.exe"
+
+        if req_file or (self.dock.path / "requirements.txt").exists():
+            log.info("📦 [Dock] Installing dependencies from requirements.txt...")
+            self.dock.terminal.execute_command(f"{pip_cmd} install -r requirements.txt")
+
         main_file = next((f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")), None)
         if not main_file: return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
         
-        file_name = Path(main_file).name
-        
-        python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
-        log.info(f"🧪 [Run] Executing via venv: {python_cmd} {file_name}")
-        result = self.dock.terminal.execute_command(f"{python_cmd} {file_name}")
+        log.info(f"🧪 [Run] Executing via venv: {python_cmd} {main_file}")
+        result = self.dock.terminal.execute_command(f"{python_cmd} {main_file}")
         
         return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
     
@@ -267,7 +291,6 @@ class Orchestrator:
         try:
             prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
             raw_msg = self._coder._call_llm(prompt).strip()
-            # 💋 [Fix] マークダウンのバッククォートを徹底的に掃除
             msg = raw_msg.replace("```plaintext", "").replace("```", "").strip().split("\n")[0]
             log.info("📝 [Commit] Recording surgery results: %s", msg)
             
