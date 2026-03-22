@@ -1,22 +1,25 @@
 """
 ARK — Reflector Agent (SYLPH)
 =============================
-振り返りフェーズを担当するエージェント。
+振り返りフェーズと、記憶のガベージコレクション（大掃除）を担当するエージェント。
 
 責務
 ----
 - 完了したミッション（Goal）と最終的なコード（CodePayload）を分析する。
-- 記憶ツールを自律的に使用し、将来の航海に役立つ知見（Telescopeの検索結果含む）やコアルールを永続化する。💋
+- 記憶ツールを自律的に使用し、将来の航海に役立つ知見やコアルールを永続化する。
+- 🧹 [NEW] 乱雑になった記憶を読み込み、自律的に整理整頓（GC）を行う司書モード💋
 """
 
 from __future__ import annotations
 
 import logging
+import json
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Dict
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_reflector_prompt # 🌟 Canvasで定義した最新のプロンプトを使用！
+from src.core.agents import build_reflector_prompt, build_gc_prompt # 🌟 プロンプト工場から取得！
 from src.core.models import CodePayload, PlanPayload
 
 if TYPE_CHECKING:
@@ -25,7 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("ARK.Reflector")
 
 class ReflectorAgent(BaseAgent):
-    """振り返り担当SYLPHエージェント。"""
+    """振り返り＆記憶整理担当SYLPHエージェント。"""
 
     def __init__(
         self, 
@@ -47,19 +50,14 @@ class ReflectorAgent(BaseAgent):
         """ゴールとコードを分析し、記憶ツールを実行する。"""
         log.info("[Reflector] Analysing completed task for memory extraction…")
 
-        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す
         search_results = getattr(plan, "search_results", "")
-        
-        # 🌟 変更されたファイルのリストを作成
         files = [fc.path for fc in code.files]
         
-        # 🌟 最終的に生成されたコードのサマリーを作成
         parts = []
         for fc in code.files:
             parts.append(f"### File: {fc.path}\n```python\n{fc.content}\n```")
         code_summary = "\n\n".join(parts) if parts else "(no files)"
 
-        # 🌟 中央工場から最新のプロンプトを生成！検索結果もバケツリレーするわよ💋
         prompt = build_reflector_prompt(
             goal=plan.goal,
             files=files,
@@ -76,7 +74,6 @@ class ReflectorAgent(BaseAgent):
         for line in response.split("\n"):
             line = line.strip()
             
-            # 1. 経験のアーカイブ (archive_experience)
             if line.startswith("TOOL_CALL: archive_experience"):
                 parts = line.split("|", 1)
                 if len(parts) == 2:
@@ -90,7 +87,6 @@ class ReflectorAgent(BaseAgent):
                             except Exception as e:
                                 log.error(f"Tool execution failed: {e}")
                                 
-            # 2. コアルールの保存 (save_core_rule)
             elif line.startswith("TOOL_CALL: save_core_rule"):
                 parts = line.split("|", 2)
                 if len(parts) == 3:
@@ -107,3 +103,36 @@ class ReflectorAgent(BaseAgent):
                                 
         if not tool_executed:
             log.info("[Reflector] No memories to archive this time.")
+
+    # =========================================================================
+    # 🧹 [PHASE 10-2] ガベージコレクション（大図書館の司書モード）💋
+    # =========================================================================
+
+    def garbage_collect(self, current_memory_dump: str) -> Optional[Dict[str, Any]]:
+        """
+        現在の記憶ダンプを読み込み、重複や矛盾を排除して整理したJSONを返すわ💋
+        """
+        log.info("🧹 [Reflector] 司書モード起動！記憶の整理整頓を開始します...")
+
+        gc_prompt = build_gc_prompt(current_memory_dump)
+        response = self._call_llm(gc_prompt)
+        
+        # 🛡️ LLMがおしゃべりしても大丈夫！最初にある `{` から最後の `}` までを撃ち抜くわ💋
+        try:
+            start_idx = response.find('{')
+            end_idx = response.rfind('}')
+            
+            if start_idx == -1 or end_idx == -1 or start_idx > end_idx:
+                raise ValueError("JSONブロックが見つかりませんでした。")
+                
+            # JSON部分だけをスナイプ！
+            json_str = response[start_idx:end_idx + 1]
+            
+            # 整理された結果をパース
+            cleaned_data = json.loads(json_str)
+            log.info("✅ [Reflector] 記憶の再構築（パース）に成功しました！")
+            return cleaned_data
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            log.error(f"❌ [Reflector] 司書がJSONのフォーマットを間違えました: {e}\nResponse: {response}")
+            return None
