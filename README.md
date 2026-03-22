@@ -35,10 +35,11 @@ ClineやCursorといった既存のツールが「高性能な磁針や櫂（ツ
 * **Auto-Bailing (自動修復):** 実行エラー（浸水）を解析し、原因を特定してコードを自動修正。どんな嵐でも方舟は沈みません。
 * **Short-Term Log (短期記憶):** 試行錯誤の履歴を一時メモリとして保持。同じ座礁（失敗）を繰り返さず、常に前へ進みます。
 
-### 3. 【大図書館】3層階層化・長期記憶システム (The Archives) 🧠
-* **Core Knowledge (掟):** `core_rules.json` によるプロジェクト独自の絶対ルールの永続化。
-* **Episodic Archive (経験):** Vector DB (ChromaDB) を用いた、過去の成功体験やエラー解決策のベクトル検索基盤。
-* **Reflector SYLPH:** 航海完了後に「振り返り」を行い、自律的に知見を抽出して記憶ツールを実行する専用エージェント。
+### 3. 【大図書館】深層・長期記憶システム (The Deep Archives) 🧠
+* **Tiered Storage:** `core_rules.json`（絶対の掟）と `ChromaDB`（エピソード記憶）の2層構造。
+* **Data Provenance (出所管理):** 記憶に `source`（telescope/local）や `trust_level`（verified/unverified）のタグを付与。Webの未検証情報と実証済みの知見を峻別します。
+* **Command-based Management:** HUDから直接 `/memory` (一覧表示)、`/forget` (ピンポイント削除) が可能。船長の意志で「忘却」をコントロールできます。
+* **Reflector Librarian:** 航海完了後の知見抽出に加え、`/gc` コマンドによる「大掃除」を担当。重複・矛盾する記憶を自律的に統合し、脳内を最新の状態へ再構築します。
 
 ### 4. 【甲板作業】ターミナル・クレーン (Deck Operations)
 * **Autonomous Setup:** `requirements.txt` を自動検知し、自ら `pip install` を実行。方舟の必要資材は自ら調達・構築します。
@@ -91,9 +92,11 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Manual PR Link Generation:** Push完了後、比較用URLの自動生成。
     - [x] **Resilient Parsing & Genesis Git:** 執念のパース能力とGit初期化エラーの撲滅。
 - [ ] **Phase 10 (The Deep Archives & Horizon - 堅牢化と限界突破):** 🌟 **IN PROGRESS**
-    - [x] **Telescope Calibration:** 未知のライブラリ（ascii-magic等）を用いた無茶振りミッションによる、望遠鏡の自律リサーチ＆解決能力の実地検証。
-    - [x] **Eco-Mock Protocol:** Orchestratorのモードと連動し、API消費を抑えつつ自律ループをテストするモック機能の実装。
-    - [ ] **Memory Garbage Collection:** 蓄積されたルールの矛盾パージ機能と、ChromaDBの検索精度（コサイン類似度）の極限チューニング。
+    - [x] **Telescope Calibration:** 未知のライブラリを用いた望遠鏡の自律リサーチ＆解決能力の検証。
+    - [x] **Eco-Mock Protocol:** API消費を抑えつつ自律ループをテストするモック機能の実装。
+    - [x] **Deep Memory Management:** 記憶へのメタデータ付与と、HUDからの `/memory`, `/forget` による手動管理機能。
+    - [x] **Memory Garbage Collection:** 蓄積されたルールの矛盾パージと、Reflectorによる自律的な記憶の再構築（整理整頓）。
+    - [ ] **Similarity Threshold Tuning:** ChromaDBの検索精度（コサイン類似度）の極限チューニング。
 - [ ] **Phase 11 (The Universal Port - MCP Integration):** 🌐 **VISION!**
     - **Model Context Protocol (MCP):** MCPを「万能接続ポート」として採用。ターミナルやGit操作だけでなく、Slack通知やデータベース操作、外部ドキュメント検索など、世界中の標準化されたツール（外部機器）をプラグイン感覚で自律的に使いこなす「超・汎用型ガレオン船」への進化。
 

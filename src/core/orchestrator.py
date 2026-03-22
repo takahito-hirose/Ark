@@ -2,10 +2,8 @@
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
 「すべてを浄化し、完璧に同期する」
-グランドフィナーレ・エンジン（Grand Finale Engine）搭載。
-GitToolのバグを回避し、GitHubへのPR作成まで完走させるわ！
-自律的な環境構築（requirements.txtの自動適用）と、
-エージェント間のワークスペース完全同期を実装した強化版よ💋
+特殊コマンドの処理を CommandInterceptor に委譲し、
+メインの自律造船ループ（Grand Finale Engine）の統制に特化した指揮官よ💋
 """
 
 from __future__ import annotations
@@ -26,16 +24,20 @@ from src.memory import MemoryManager
 from src.tools import memory_tools
 from src.core.dock import Dock
 from src.core.state import ARKState
-from src.core.models import Phase, PlanPayload, CodePayload, ReviewPayload, ReviewStatus, RunResult, ExecutionAttempt
+from src.core.models import (
+    Phase, PlanPayload, CodePayload, ReviewPayload, 
+    ReviewStatus, RunResult, ExecutionAttempt
+)
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
 from src.agents.reflector import ReflectorAgent
 from src.core.config import ConfigLoader
 from src.core.factory import get_provider
 from src.core.agents import build_commit_msg_prompt
 
-# 分割したモジュールをインポート
+# 外部委譲されたマネージャーとインターセプター
 from src.core.dock_manager import setup_dock
 from src.core.github_publisher import publish_to_github
+from src.core.command_interceptor import handle_special_commands # 🌟 コマンド傍受器💋
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -55,7 +57,6 @@ log = logging.getLogger("ARK.Orchestrator")
 MAX_RETRIES: Final[int] = 3
 
 class CircuitBreakerTripped(RuntimeError): pass
-class OrchestratorBlocked(RuntimeError): pass
 
 class StatusCallback(Protocol):
     def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
@@ -65,6 +66,8 @@ class StatusCallback(Protocol):
 # ---------------------------------------------------------------------------
 
 class Orchestrator:
+    """方舟の全行程を統制する、絶対的な指揮官。"""
+
     def __init__(
         self,
         config_path: Path | None = None,
@@ -78,6 +81,7 @@ class Orchestrator:
         self.target_input = str(workspace_path) if workspace_path else ""
         self.is_url = self.target_input.startswith(("http://", "https://", "git@"))
 
+        # ワークスペースの解決
         if self.is_url:
             self._base_workspace = Path(self._cfg.workspace_path).resolve()
         else:
@@ -90,19 +94,32 @@ class Orchestrator:
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
 
+        # 記憶システムの初期化
         self._memory = MemoryManager(base_dir=self._base_workspace / ".ark_memory")
         memory_tools.inject_memory_manager(self._memory)
 
-        # 🌟 [CRITICAL FIX] モード連動！ ECOモードなら環境変数をセットして Telescope にテレパシーを送るわ💋
+        # モードに応じたモック設定
         is_mock = "1" if self.mode == "ECO" else "0"
         os.environ["ARK_MOCK_MODE"] = is_mock
         log.info(f"⚙️ System Mode: {self.mode} / 🔭 Telescope Mock: {'ON' if is_mock == '1' else 'OFF'}")
 
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        
-        # 🌟 FIX: プロバイダーを "reflector" に修正し、記憶ツールを完全装備！💋
+        # エージェント（精霊）たちの召喚
+        self._architect = ArchitectAgent(
+            get_provider("architect", self._cfg), 
+            workspace_path=self._base_workspace, 
+            on_token_usage=self.on_token_usage,
+            use_mock_telescope=(self.mode == "ECO")
+        )
+        self._coder = CoderAgent(
+            get_provider("coder", self._cfg), 
+            workspace_path=self._base_workspace, 
+            on_token_usage=self.on_token_usage
+        )
+        self._reviewer = ReviewerAgent(
+            get_provider("reviewer", self._cfg), 
+            workspace_path=self._base_workspace, 
+            on_token_usage=self.on_token_usage
+        )
         self._reflector = ReflectorAgent(
             get_provider("reflector", self._cfg), 
             workspace_path=self._base_workspace, 
@@ -113,7 +130,9 @@ class Orchestrator:
         self.dock: Dock | None = None 
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
+        """ミッションを開始し、自律ループを回すわ。"""
         self._base_workspace.mkdir(parents=True, exist_ok=True)
+        
         if resume:
             self._state.load()
         else:
@@ -122,7 +141,17 @@ class Orchestrator:
             
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
+            
+        # =========================================================================
+        # 🌟 特殊コマンドの傍受 (Command Interception) 💋
+        # =========================================================================
+        # /memory, /forget, /gc などのメタコマンドはここで即時処理して終了するわ。
+        # ✨ ここに `reflector=self._reflector` を追加したわ！これで司書が呼ばれるわよ！
+        if handle_special_commands(goal, self._memory, self._update_phase, reflector=self._reflector):
+            return self._base_workspace
+        # =========================================================================
         
+        # コアルールの注入
         core_rules = self._memory.load_core_rules_prompt()
         if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
             goal = f"{goal}\n\n{core_rules}"
@@ -137,18 +166,12 @@ class Orchestrator:
             self._update_phase(Phase.PLANNING, "START", "Drafting mission blueprint...")
             plan = self._phase_plan(goal)
 
-            # ターゲット固定（迷路混入対策）
+            # ターゲットファイルの固定
             goal_files = re.findall(r'(\w+\.py)', goal)
             if goal_files:
                 plan.target_files = goal_files
 
-            # [Hard Reset] ドックのクリーンアップ
-            dock_id = self._state.task_id[:8]
-            target_dock_path = self._base_workspace / "docks" / f"cloned-{dock_id}"
-            if target_dock_path.exists():
-                log.info("🧹 [Cleansing] Resetting dock path: %s", target_dock_path)
-                shutil.rmtree(target_dock_path)
-
+            # ドック（造船所）の準備
             self.dock = setup_dock(
                 target_input=self.target_input,
                 base_workspace=self._base_workspace,
@@ -156,7 +179,7 @@ class Orchestrator:
                 plan_project_name=getattr(plan, 'project_name', None)
             )
 
-            # 🌟 [CRITICAL FIX] エージェントの視点をドック内に同期する！💋
+            # エージェントたちの作業ディレクトリをドックに同期
             if self.dock:
                 for agent in [self._architect, self._coder, self._reviewer, self._reflector]:
                     agent._workspace_path = self.dock.path
@@ -172,6 +195,7 @@ class Orchestrator:
                 retry = self._state.retry_count
                 self._update_phase(Phase.CODING, "START", f"Surgical Implementation (Attempt {retry+1})")
                 
+                # コンテキストとして現在のソースを読み込む
                 current_source = ""
                 if plan.target_files and self.dock:
                     target_file = self.dock.path / plan.target_files[0]
@@ -180,12 +204,17 @@ class Orchestrator:
 
                 prompt_aug = f"\n\n### Current SOURCE of {plan.target_files[0]}:\n```python\n{current_source}\n```" if current_source else ""
                 
+                # コーディング実行（エラーがあれば自己修正）
                 if execution_feedback:
-                    code_result = self._coder.remediate(plan, retry, failure_reason="Execution Error", stacktrace=execution_feedback, current_source=current_source, attempt_history=attempt_history)
+                    code_result = self._coder.remediate(
+                        plan, retry, failure_reason="Execution Error", 
+                        stacktrace=execution_feedback, current_source=current_source, 
+                        attempt_history=attempt_history
+                    )
                 else:
                     code_result = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback + prompt_aug)
 
-                # 🚀 RUNNING
+                # 🚀 実行検証 (RUNNING)
                 self._state.push_event(Phase.CODING, "RUNNING", "Validating artifacts...")
                 self._state.save()
                 
@@ -197,13 +226,17 @@ class Orchestrator:
                     self._state.save()
                     
                     if code_result and code_result.files:
-                        attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=err_msg, attempt_number=self._state.retry_count))
+                        attempt_history.append(ExecutionAttempt(
+                            code=code_result.files[0].content, 
+                            error=err_msg, 
+                            attempt_number=self._state.retry_count
+                        ))
                     execution_feedback = err_msg
                     continue
                 
                 execution_feedback = ""
 
-                # 🔍 REVIEWING
+                # 🔍 審査 (REVIEWING)
                 self._update_phase(Phase.REVIEWING, "START", "Auditing results...")
                 review = self._phase_review(code_result, retry, plan)
                 last_review = review
@@ -220,13 +253,14 @@ class Orchestrator:
             if self._state.retry_count >= MAX_RETRIES and (not last_review or last_review.status != ReviewStatus.PASS):
                 self._state.transition(Phase.BLOCKED)
                 self._state.save()
-                raise CircuitBreakerTripped(f"Surgery could not be stabilized. ")
+                raise CircuitBreakerTripped("Surgery could not be stabilized. Circuit breaker tripped. 💋")
 
             # ── PHASE 4: COMMITTING ───────────────────────────────────────────
             self._update_phase(Phase.COMMITTING, "START", "Finalizing sync...")
             assert code_result is not None
             self._phase_commit(code_result, plan.goal)
 
+            # GitHub へのパブリッシュ
             is_new_project = not self.is_url and not (self.dock.path.exists() and (self.dock.path / ".git").exists())
             pr_url = publish_to_github(self.dock, self._state.task_id, plan.goal, is_new_project, self.is_url)
             
@@ -267,6 +301,7 @@ class Orchestrator:
         except Exception as e:
             return RunResult(exit_code=1, stdout="", stderr=f"Dock write error: {e}", duration=0)
 
+        # 依存関係のチェック
         req_file = next((f for f in code.files if f.path == "requirements.txt"), None)
         python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
         pip_cmd = ".venv/bin/pip" if os.name != "nt" else ".venv\\Scripts\\pip.exe"
@@ -275,6 +310,7 @@ class Orchestrator:
             log.info("📦 [Dock] Installing dependencies from requirements.txt...")
             self.dock.terminal.execute_command(f"{pip_cmd} install -r requirements.txt")
 
+        # 実行テスト（.py ファイルを探して実行）
         main_file = next((f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")), None)
         if not main_file: return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
         
@@ -303,4 +339,5 @@ class Orchestrator:
 
 if __name__ == "__main__":
     load_dotenv()
+    # ターミナルから直接呼び出された場合の簡易エントリーポイント
     Orchestrator().run(" ".join(sys.argv[1:]) if len(sys.argv) > 1 else "Hello World")
