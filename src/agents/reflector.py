@@ -8,6 +8,7 @@ ARK — Reflector Agent (SYLPH)
 - 完了したミッション（Goal）と最終的なコード（CodePayload）を分析する。
 - 記憶ツールを自律的に使用し、将来の航海に役立つ知見やコアルールを永続化する。
 - 🧹 [NEW] 乱雑になった記憶を読み込み、自律的に整理整頓（GC）を行う司書モード💋
+- 🧠 [NEW] 苦労の履歴（attempt_history）と失敗フラグ（is_failure）から、アンチパターンを学習する！
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Dict
 
 from src.agents.base_agent import BaseAgent
 from src.core.agents import build_reflector_prompt, build_gc_prompt # 🌟 プロンプト工場から取得！
-from src.core.models import CodePayload, PlanPayload
+from src.core.models import CodePayload, PlanPayload, ExecutionAttempt # 🌟 ExecutionAttempt を追加！
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
@@ -46,9 +47,20 @@ class ReflectorAgent(BaseAgent):
         self.workspace_path = workspace_path
         self.tools = tools or []
 
-    def reflect(self, plan: PlanPayload, code: CodePayload) -> None:
-        """ゴールとコードを分析し、記憶ツールを実行する。"""
-        log.info("[Reflector] Analysing completed task for memory extraction…")
+    def reflect(
+        self, 
+        plan: PlanPayload, 
+        code: CodePayload, 
+        attempt_history: list[ExecutionAttempt] | None = None, # 🌟 Orchestratorから苦労履歴を受け取る！
+        is_failure: bool = False # 🌟 Orchestratorから致命的敗北フラグを受け取る！
+    ) -> None:
+        """ゴールとコード、そして苦労の軌跡を分析し、記憶ツールを実行する。"""
+        
+        # モードに応じたログの切り替え
+        if is_failure:
+            log.warning("⚠️ [Reflector] 致命的な敗北を検知！アンチパターンの抽出と地雷マップの作成に移行します💋")
+        else:
+            log.info("✨ [Reflector] ミッション完了！成功の軌跡から知見を抽出します...")
 
         search_results = getattr(plan, "search_results", "")
         files = [fc.path for fc in code.files]
@@ -58,11 +70,31 @@ class ReflectorAgent(BaseAgent):
             parts.append(f"### File: {fc.path}\n```python\n{fc.content}\n```")
         code_summary = "\n\n".join(parts) if parts else "(no files)"
 
+        # =========================================================================
+        # 🌟 [PHASE 10-3 STEP 1] 苦労履歴のフォーマット化 💋
+        # =========================================================================
+        history_str = ""
+        if attempt_history:
+            log.info(f"🧠 [Reflector] {len(attempt_history)}回のトライ＆エラー履歴を分析対象に追加します。")
+            h_parts = []
+            for h in attempt_history:
+                h_parts.append(f"--- Attempt {h.attempt_number} ---\n[Error Log]\n{h.error}")
+            history_str = "\n".join(h_parts)
+        else:
+            if is_failure:
+                history_str = "No specific error logs, but the mission failed fundamentally. (Logic/Review Error)"
+            else:
+                history_str = "No execution errors. The plan succeeded on the first try. Perfect!💋"
+        # =========================================================================
+
+        # 🌟 プロンプト工場に history_str と is_failure フラグを渡す！
         prompt = build_reflector_prompt(
             goal=plan.goal,
             files=files,
             code_summary=code_summary,
-            search_results=search_results
+            search_results=search_results,
+            attempt_history_str=history_str,
+            is_failure=is_failure # 👈 ここが追加ポイントよ💋
         )
         
         response = self._call_llm(prompt)

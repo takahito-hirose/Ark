@@ -105,23 +105,23 @@ class Orchestrator:
 
         # エージェント（精霊）たちの召喚
         self._architect = ArchitectAgent(
-            get_provider("architect", self._cfg), 
+            get_provider("architect", self._cfg, mode=self.mode), 
             workspace_path=self._base_workspace, 
             on_token_usage=self.on_token_usage,
             use_mock_telescope=(self.mode == "ECO")
         )
         self._coder = CoderAgent(
-            get_provider("coder", self._cfg), 
+            get_provider("coder", self._cfg, mode=self.mode), 
             workspace_path=self._base_workspace, 
             on_token_usage=self.on_token_usage
         )
         self._reviewer = ReviewerAgent(
-            get_provider("reviewer", self._cfg), 
+            get_provider("reviewer", self._cfg, mode=self.mode), 
             workspace_path=self._base_workspace, 
             on_token_usage=self.on_token_usage
         )
         self._reflector = ReflectorAgent(
-            get_provider("reflector", self._cfg), 
+            get_provider("reflector", self._cfg, mode=self.mode), 
             workspace_path=self._base_workspace, 
             tools=[memory_tools.save_core_rule, memory_tools.archive_experience], 
             on_token_usage=self.on_token_usage
@@ -143,18 +143,30 @@ class Orchestrator:
             self._state.set_callback(self.on_status_change)
             
         # =========================================================================
-        # 🌟 特殊コマンドの傍受 (Command Interception) 💋
+        # 🌟 特殊コマンドの傍受 (Command Interception)
         # =========================================================================
-        # /memory, /forget, /gc などのメタコマンドはここで即時処理して終了するわ。
-        # ✨ ここに `reflector=self._reflector` を追加したわ！これで司書が呼ばれるわよ！
         if handle_special_commands(goal, self._memory, self._update_phase, reflector=self._reflector):
             return self._base_workspace
         # =========================================================================
         
-        # コアルールの注入
+        # =========================================================================
+        # 🧠 [PHASE 10-3 STEP 3] 大図書館からのRAG自動注入 (Context Injection) 💋
+        # =========================================================================
+        self._update_phase(Phase.PLANNING, "RAG", "大図書館から過去の航海記録を検索中...")
         core_rules = self._memory.load_core_rules_prompt()
+        past_memories = self._memory.recall_memory(goal, n_results=3)
+
+        context_injection = ""
         if core_rules and "現在、特定のプロジェクト・コアルールは" not in core_rules:
-            goal = f"{goal}\n\n{core_rules}"
+            context_injection += f"{core_rules}\n"
+        
+        if past_memories and "見つかりませんでした" not in past_memories:
+            context_injection += f"{past_memories}\n"
+
+        if context_injection:
+            goal = f"{goal}\n\n{context_injection}"
+            log.info("📚 [RAG] 過去の掟と知見をミッションプランに注入しました！")
+        # =========================================================================
 
         log.info("=" * 60)
         log.info("🚀  ARK Autonomous Loop (Grand Finale)")
@@ -250,10 +262,26 @@ class Orchestrator:
                 self._state.retry_count += 1
                 self._state.save()
 
+            # =========================================================================
+            # 🚨 [致命的な敗北の処理] 
+            # Orchestratorは分析せず、ただ司書(Reflector)に履歴をぶん投げるだけ💋
+            # =========================================================================
             if self._state.retry_count >= MAX_RETRIES and (not last_review or last_review.status != ReviewStatus.PASS):
                 self._state.transition(Phase.BLOCKED)
                 self._state.save()
+                
+                log.warning("⚠️ [Orchestrator] 致命的な敗北を確認。原因分析を司書に委譲します...")
+                self._state.push_event(Phase.BLOCKED, "REFLECT", "Archiving fatal failure...")
+                self._state.save()
+                
+                # 敗北時はコードが不完全かもしれないので安全対策
+                failed_code = code_result if code_result else CodePayload(files=[])
+                
+                # 🌟 is_failure=True という「フラグ」だけを渡して丸投げ！
+                self._reflector.reflect(plan, failed_code, attempt_history=attempt_history, is_failure=True)
+                
                 raise CircuitBreakerTripped("Surgery could not be stabilized. Circuit breaker tripped. 💋")
+            # =========================================================================
 
             # ── PHASE 4: COMMITTING ───────────────────────────────────────────
             self._update_phase(Phase.COMMITTING, "START", "Finalizing sync...")
@@ -271,7 +299,9 @@ class Orchestrator:
             # ── PHASE 5: REFLECT ──────────────────────────────────────────────
             self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge archiving...")
             self._state.save()
-            self._reflector.reflect(plan, code_result)
+            
+            # 🌟 [PHASE 10-3 STEP 1] 成功時は通常通り司書を呼ぶ
+            self._reflector.reflect(plan, code_result, attempt_history=attempt_history, is_failure=False)
 
             self._update_phase(Phase.DONE, "FINISH", "Mission successful. Probe ship docked. ⚓️💋")
             return self.dock.path if self.dock else Path(".")
