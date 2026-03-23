@@ -39,7 +39,8 @@ _PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
 # Public factory function
 # ---------------------------------------------------------------------------
 
-def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
+# 🌟 第3引数に `mode: str = "ECO"` を追加！
+def get_provider(role: str, cfg: "ARKConfig", mode: str = "ECO") -> BaseProvider:
     """エージェントロールに対応する :class:`BaseProvider` インスタンスを返す。
 
     Parameters
@@ -49,6 +50,9 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
         ``"architect"`` / ``"coder"`` / ``"reviewer"`` / ``"reflector"`` のいずれか。
     cfg:
         :class:`~src.core.config.ARKConfig` のインスタンス。
+    mode:
+        システムの動作モード (``"ECO"`` または ``"RICH"``)。
+        RICHの場合は強制的にGeminiプロバイダーを使用する。
 
     Returns
     -------
@@ -62,7 +66,7 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
         "architect": "architect_provider",
         "coder":     "coder_provider",
         "reviewer":  "reviewer_provider",
-        "reflector": "reflector_provider", # 👈 Reflector を追加！💋
+        "reflector": "reflector_provider",
     }
 
     if role_lower not in role_to_provider_attr:
@@ -74,6 +78,10 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
     # config からプロバイダー名（ollama/gemini等）を取得
     provider_name: str = getattr(cfg, role_to_provider_attr[role_lower], "ollama").lower().strip()
 
+    # 🌟🌟🌟 ここが肝！RICHモードなら問答無用でGeminiにオーバーライド！ 🌟🌟🌟
+    if mode == "RICH":
+        provider_name = "gemini"
+
     # ---- 2. プロバイダー種別に応じてモデル属性名を解決 --------------------------
     # Gemini の場合は _gemini サフィックスが付いたフィールド（例: coder_model_gemini）を優先するわ
     is_gemini = (provider_name == "gemini")
@@ -84,7 +92,12 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
     # config からモデル名を取得。なければグローバルの cfg.model_name にフォールバック
     model_name: str = getattr(cfg, model_attr_name, cfg.model_name)
 
-    log.info("Role %r → provider %r (model=%s)", role, provider_name, model_name)
+    # 🚨 セーフティネット: RICHモードでモデル名が未設定（ollamaのモデル名が入っちゃう場合）への対策
+    if mode == "RICH" and ("gemma" in model_name or "qwen" in model_name or "llama" in model_name or "phi" in model_name):
+        model_name = "gemini-2.5-flash"  # フォールバック用のGeminiモデル
+        log.warning(f"⚠️ [RICH MODE] {role} のGeminiモデルが未指定のため、強制的に {model_name} に設定しました。")
+
+    log.info("Role %r → provider %r (model=%s) [Mode=%s]", role, provider_name, model_name, mode)
 
     # ---- 3. プロバイダーのビルド --------------------------------------------
     return _build_provider(provider_name, model_name, cfg)

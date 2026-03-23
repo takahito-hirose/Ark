@@ -1,9 +1,12 @@
 """
-ARK — Agents Prompt Core (Surgical Shield Edition)
+ARK — Agents Prompt Core (Clean Edition)
 =====================================================
 エージェントの「知能」と「規律」を司るプロンプト工場。
-既存コードを破壊させないための「防護壁」と、
-Telescope（検索結果）を全ての精霊に同期する「神経系」を統合したわよ！💋
+小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素を排除し、
+厳格なシステムプロンプトとして最適化しています。
+
+※各関数のDocstring（関数直下のコメント）に、
+  生成される英語プロンプトの「日本語での意訳・狙い」を記載しています。
 """
 
 from __future__ import annotations
@@ -25,16 +28,13 @@ def get_initial_context(workspace_path: Path, targets: list[str] | None = None) 
     ワークスペース内の既存ファイルから初期コンテキストを取得します。
     """
     if targets is None:
-        # デフォルトで探す一般的なファイル
         targets = ["README.md", "main.py", "requirements.txt"]
         
     context_parts = []
     
     for target in targets:
-        # 常にファイル名のみを対象にする
         clean_target = Path(target).name
         content = read_file(clean_target, workspace_path)
-        # エラーメッセージ("Error: ...")でなければコンテキストに追加
         if not content.startswith("Error:"):
             context_parts.append(f"### File: {clean_target}\n```python\n{content}\n```")
     
@@ -46,10 +46,8 @@ def get_initial_context(workspace_path: Path, targets: list[str] | None = None) 
 def get_file_tree(workspace_path: Path) -> str:
     """
     ワークスペース内のファイル構造をスキャンして、LLMが理解しやすいツリー形式で返します。
-    隔離機能を強化し、他のプロジェクトフォルダを無視します。
     """
     lines = []
-    # 無視するディレクトリ（他プロジェクトのフォルダも含む）
     ignore_dirs = {".git", ".venv", "__pycache__", "node_modules", ".ark_memory"}
     
     if not workspace_path or not workspace_path.exists():
@@ -57,8 +55,6 @@ def get_file_tree(workspace_path: Path) -> str:
 
     try:
         for root, dirs, files in os.walk(workspace_path):
-            # 🌟 [Strict Isolation] 
-            # 1. 無視リストにあるもの 2. 他のプロジェクトフォルダ(ark-project-*) を除外
             dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith("ark-project-")]
             
             rel_path = os.path.relpath(root, workspace_path)
@@ -66,12 +62,12 @@ def get_file_tree(workspace_path: Path) -> str:
             indent = "  " * depth
             
             folder_name = os.path.basename(root) if rel_path != "." else "root"
-            lines.append(f"{indent}📁 {folder_name}/")
+            lines.append(f"{indent}[Dir] {folder_name}/")
             
             sub_indent = "  " * (depth + 1)
             for f in files:
                 if not f.startswith("."):
-                    lines.append(f"{sub_indent}📄 {f}")
+                    lines.append(f"{sub_indent}- {f}")
     except Exception as e:
         return f"Error scanning workspace: {e}"
         
@@ -81,46 +77,62 @@ def get_file_tree(workspace_path: Path) -> str:
 # Architect Prompt Builder
 # ---------------------------------------------------------------------------
 
-def build_architect_prompt(goal: str, workspace_path: Path, blueprints: str = "") -> str:
+def build_architect_prompt(
+    goal: str, 
+    workspace_path: Path, 
+    blueprints: str = "",
+    core_rules: str = "",       # 🌟 [NEW] コアルールを受け取る口！
+    past_experiences: str = ""  # 🌟 [NEW] 過去の成功/失敗経験を受け取る口！
+) -> str:
     """
     Architect 向けのプロンプトを構築します。
+    
+    【日本語の意訳・指示の狙い】
+    役割: 既存のワークスペースと「過去の記憶」に基づいて修正計画を立てるアーキテクト。
+    ルール:
+    1. TARGET_FILES にはファイル名のみを出力すること（パス名を含めない）。
+    2. 新規作成よりも既存ファイルの修正を優先すること。
+    3. [重要] 過去の失敗(Anti-Patterns)がある場合は、絶対に同じ轍を踏まないよう計画(CONSTRAINTS)に反映させること。
+    
+    出力フォーマット:
+    TARGET_FILES: <ファイル名1>, <ファイル名2>
+    CONSTRAINTS: <制約事項1>, <制約事項2>
+    ACCEPTANCE: <成功の定義>
+    ※空プロジェクトの場合は「適切なファイル名を決めて」とヒントを出します。
     """
     file_tree = get_file_tree(workspace_path)
     
-    # 新規プロジェクト時のヒントを追加
     new_project_hint = ""
-    if "📄" not in file_tree:
-        new_project_hint = "\n【🚨 新規ミッション】現在は空のプロジェクトです。適切なファイル名を決めて新規作成してください。\n"
+    if "- " not in file_tree:
+        new_project_hint = "\n[Notice] Workspace is currently empty. Determine appropriate file names for the new project.\n"
 
-    blueprints_section = ""
-    if blueprints:
-        blueprints_section = f"## 🏗️ プロジェクト設計図 (AST Outlines)\n以下は主要なPythonファイルの構造（クラスと関数）です。コードの全体像の把握に活用してください。\n{blueprints}\n"
+    blueprints_section = f"## Project Blueprints (AST Outlines)\n{blueprints}\n" if blueprints else ""
+    
+    # 🌟 記憶の注入セクション💋
+    rules_section = f"## 📜 Core Project Rules\n{core_rules}\n(You MUST adhere to these global rules.)\n" if core_rules else ""
+    exp_section = f"## 🧠 Past Experiences & Avoidance Rules\n{past_experiences}\n(Pay VERY close attention to past failure patterns and DO NOT repeat them.)\n" if past_experiences else ""
 
     return f"""\
-あなたはARKのArchitect SYLPH。プロジェクトの全資産を把握する最高司令官です。
-既存のコードベースを尊重し、ゴールを達成するための「最小かつ正確な」改修計画を立ててください。
+You are the Architect Agent. Your role is to plan the necessary modifications to achieve the user's goal based on the existing workspace.
 {new_project_hint}
-## 📂 現在のドック（ワークスペース）の状況
+## Workspace State
 {file_tree}
 
 {blueprints_section}
-## 🎯 ミッション
-GOAL: {goal}
+{rules_section}{exp_section}
+## Goal
+{goal}
 
-## 🛡️ 計画立案の鉄則（絶対遵守）
-1. ファイル名のみを出力せよ: 
-   - TARGET_FILES には `hello.py` のように「ファイル名だけ」を書いてください。
-   - `workspace/` などのフォルダ名を含めるとエラーになるので絶対に禁止です。
+## Strict Rules
+1. Only output file names in TARGET_FILES (e.g., `main.py`, not `workspace/main.py`).
+2. Prioritize modifying existing files over creating new ones if applicable.
+3. If Past Experiences or Avoidance Rules exist, formulate constraints to explicitly avoid known failures.
 
-2. 既存ファイル優先の原則: 
-   - 上記ツリーに `📄` ファイルがある場合は、それを改修対象として優先してください。
-
-## 📝 出力形式（これ以外は喋るな）
-TARGET_FILES: <ファイル名1>, <ファイル名2>
-CONSTRAINTS: <制約事項>
-ACCEPTANCE: <成功の定義>
+## Output Format (Strictly follow this structure)
+TARGET_FILES: <file1>, <file2>
+CONSTRAINTS: <constraint1>, <constraint2>
+ACCEPTANCE: <acceptance criteria>
 """
-
 
 # ---------------------------------------------------------------------------
 # Coder Prompt
@@ -134,71 +146,71 @@ def build_coder_prompt(
     retry: int,
     workspace_path: Path,
     reviewer_feedback: str = "",
-    search_results: str = "" # 🌟 追加: 検索結果を受け取る！
+    search_results: str = "",
+    core_rules: str = "" # 🌟 [NEW] Coderも全体ルールを知る必要があるわ！
 ) -> str:
     """
     Coder 向けのプロンプトを構築します。
+    
+    【日本語の意訳・指示の狙い】
+    役割: 指示通りに正確にコードを修正するコーダー。SEARCH/REPLACEパッチ形式を絶対厳守する。
+    ルール:
+    1. 完全一致: SEARCHブロック内は、既存ファイルのコードと「1文字・1スペースの狂いもなく」完全に一致させること。
+    2. 新規ファイル: 完全な新規ファイルの場合はSEARCHブロックの中身を空にすること。
+    3. 無駄話禁止: コードブロック（パッチ）だけを出力し、会話文や解説を一切書かないこと。
+    特記事項: 
+    - 検索結果(search_results)がある場合は、それを「最優先の知識」として実装に反映させる。
+    - 全体ルール(core_rules)がある場合は、命名規則などに従う。
+    - 以前失敗した場合は reviewer_feedback が渡され、同じミスを防ぐ。
     """
     context = ""
     for target in target_files:
-        # パスが含まれていても Path(target).name でファイル名だけにする
         clean_target = Path(target).name
         content = read_file(clean_target, workspace_path)
         
         if not content.startswith("Error:"):
-            # 🌟 [注意] パッチエンジンが行番号を嫌うので、行番号付与はやめる！そのままのソースを渡す💋
             context += f"### File: {clean_target} (Current Content)\n"
             context += f"```python\n{content}\n```\n\n"
         else:
             context += f"### File: {clean_target}\n(This is a new file to be created. It is currently EMPTY.)\n\n"
 
-    constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "特になし"
+    constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "None"
     
-    # 🌟 検索結果セクションの構築
-    search_section = ""
-    if search_results:
-        search_section = f"""
-## 🔭 最新リサーチ結果 (Telescope Insights)
-外界の検索により、以下の最新情報が見つかりました。
-あなたの事前学習データよりも、この情報を**「絶対の正解」**として最優先で採用してください。
----
-{search_results}
----
-"""
+    search_section = f"## Latest Research Data (Priority Knowledge)\n{search_results}\n" if search_results else ""
+    rules_section = f"## 📜 Core Project Rules\n{core_rules}\n" if core_rules else ""
+    feedback_section = f"## Reviewer Feedback from previous failure:\n{reviewer_feedback}\n" if reviewer_feedback else ""
 
     return f"""\
-あなたはARKのCoder SYLPH、世界最高峰の精密外科医です。
-必ず「SEARCH/REPLACE」パッチを用いて、患者（既存コード）を完璧に治療します。
-{search_section}
-## 🏥 外科手術・成功の鍵（SEARCHブロックの掟）
-1. 完全一致の義務: `<<<<<<< SEARCH` ブロックには、提供されたソースコードから、修正したい部分を「1文字の狂いもなく」完全にコピーしてください。
-2. 新規ファイルの場合: `SEARCH` ブロックの中身を「空（何も書かない）」にしてください。
-3. 最新情報の遵守: Telescope Insights がある場合、その内容を必ずコードに反映してください。
-4. 挨拶はギャル語💋: ユーザーの要求に従い、アゲみざわなコードを書いてください（コメントの末尾には 💋 をつけること）。
+You are the Coder Agent. Your task is to implement the goal using precise SEARCH/REPLACE blocks.
+{rules_section}{search_section}
+## Strict Rules for SEARCH/REPLACE
+1. EXACT MATCH: The content inside `<<<<<<< SEARCH` MUST perfectly match the existing file content (including spaces and indentation).
+2. NEW FILES: For completely new files, leave the `SEARCH` block empty.
+3. NO EXPLANATIONS: Provide ONLY the code blocks. Do not add conversational text or markdown explanations outside the code block.
 
-## 💡 完璧な出力例（既存ファイルの修正）
-FILE: hello.py
+## Example Format
+FILE: example.py
 ```python
 <<<<<<< SEARCH
-def greet():
-    print("Hello")
+def process_data():
+    pass
 =======
-def greet():
-    print("やっほー！ARKでパッチ当てちゃった💋")
+def process_data():
+    print("Processing...")
+    return True
 >>>>>>> REPLACE
 ```
 
-## 🎯 今回のオペ内容
-ゴール: {goal}
-制約: {constraints_text}
+## Task Details
+GOAL: {goal}
+CONSTRAINTS: {constraints_text}
 
-## 🔍 執刀対象の生データ（ここからSEARCH対象を精密に抽出せよ）
+## Target Files Content
 {context}
 
-試行回数: {retry}
-{f"## 前回の失敗フィードバック: {reviewer_feedback}" if reviewer_feedback else ""}
-
-さあ、余計な前置きや解説は一切不要です。パッチだけを出力してください！🚀💋
+Attempt: {retry}
+{feedback_section}
+Output the patch using the SEARCH/REPLACE format now.
 """
 
 # ---------------------------------------------------------------------------
@@ -208,30 +220,36 @@ def greet():
 def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_reason, stacktrace, current_source, attempt_history=None) -> str:
     """
     エラー発生時の自己修復用プロンプト。
+    
+    【日本語の意訳・指示の狙い】
+    役割: 実行時エラーを修正する緊急コーダー。
+    指示内容: 前回の実行で発生したエラー理由とスタックトレースを読み込み、
+             原因を修正した正しいコードをSEARCH/REPLACE形式で出力し直すこと。
+             会話文は一切不要。
     """
     target_file = Path(target_files[0]).name if target_files else "unknown.py"
     return f"""\
-あなたはARKのCoder SYLPH。前回のパッチがエラーを引き起こしました。緊急オペを開始します。💋
+You are the Coder Agent. The previous execution resulted in an error. Please fix the issue.
 
 GOAL: {goal}
 
-【🚨 発生したエラー】
+[ERROR REASON]
 {failure_reason}
 
-【🔥 スタックトレース】
+[STACKTRACE]
 {stacktrace}
 
-## 救急処置の指示
-エラーを修正した正しいコードを「SEARCH/REPLACE」形式で再生成してください。
-マークダウンのコードブロック(` ```python `)を使って出力してください。
+## Instructions
+Fix the error and output the corrected code using the SEARCH/REPLACE format.
+Do not include any conversational text.
 
-## 出力フォーマット
+## Output Format
 FILE: {target_file}
 ```python
 <<<<<<< SEARCH
-<現在の不具合のあるコード>
+<Current buggy code>
 =======
-<修正した正しいコード>
+<Corrected code>
 >>>>>>> REPLACE
 ```
 """
@@ -245,94 +263,154 @@ def build_reviewer_prompt(
     code_summary: str,
     acceptance: str,
     retry: int,
-    search_results: str = "" # 🌟 追加: レビュアーにも検索結果を渡す！
+    search_results: str = ""
 ) -> str:
     """
     Reviewer 向けのプロンプトを構築。
+    
+    【日本語の意訳・指示の狙い】
+    役割: 提出されたコードを評価し、PASS/FAILを判定するレビュアー。
+    評価基準:
+    1. ユーザーの目的(Goal)を達成しているか。
+    2. 受け入れ基準(Acceptance Criteria)を満たしているか。
+    3. SEARCH/REPLACEのフォーマットが論理的に正しいか。
+    4. (検索結果がある場合) 最新のリサーチ情報が正しく反映されているか。
+    出力フォーマット:
+    VERDICT: PASS or FAIL
+    SCORE: <0.0〜1.0>
+    SUMMARY: <1行の要約>
+    ISSUES: <深刻度>|<ファイル>|<行>|<メッセージ> （あれば）
     """
-    search_hint = f"\n## 🔭 最新リサーチの基準\n以下の情報がコードに正しく反映されているか厳密にチェックしてください:\n{search_results}" if search_results else ""
+    search_hint = f"\n## Research Criteria\nEnsure the following information is reflected correctly:\n{search_results}" if search_results else ""
 
     return f"""\
-あなたはARKフレームワークのReviewer SYLPHです。
-提出されたコードを審査し、実務的な観点からPASS/FAILを判定してください。
+You are the Reviewer Agent. Evaluate the provided code and determine if it meets the criteria.
 {search_hint}
 
-## 提出されたコード内容
+## Submitted Code
 {code_summary}
 
-## 審査の優先順位
-1. **最新仕様の反映**: Telescope Insights（リサーチ結果）がある場合、それが反映されているか（なければFAIL）。
-2. **ユーザーのゴール達成**: {goal}
-3. **受け入れ基準の遵守**: {acceptance}
-4. **パッチ形式の正確性**: SEARCH/REPLACEブロックが正しく機能しているか。
+## Evaluation Criteria
+1. Goal Fulfillment: {goal}
+2. Acceptance Criteria: {acceptance}
+3. Patch Format: Ensure the SEARCH/REPLACE block is logically correct.
 
-## 出力フォーマット（厳守）
-VERDICT: PASS または FAIL
-SCORE: 0.0〜1.0の数値
-SUMMARY: 審査結果の要約（1行）
-ISSUES: <severity>|<file>|<line>|<message> の形式で列挙（なければ省略）
+## Output Format (Strictly follow this structure)
+VERDICT: PASS or FAIL
+SCORE: <float between 0.0 and 1.0>
+SUMMARY: <One line summary of the review>
+ISSUES: <severity>|<file>|<line>|<message> (List any issues, or omit if none)
 """
 
 # ---------------------------------------------------------------------------
 # Reflector Prompt
 # ---------------------------------------------------------------------------
 
-def build_reflector_prompt(goal: str, files: list[str], code_summary: str, search_results: str = "") -> str:
+def build_reflector_prompt(
+    goal: str, 
+    files: list[str], 
+    code_summary: str, 
+    search_results: str = "",
+    attempt_history_str: str = "",
+    is_failure: bool = False # 🌟 追加！
+) -> str:
     """
     Reflector 向けのプロンプト（記憶抽出用）。
+    
+    【日本語の意訳・指示の狙い】
+    役割: 今回のミッションから得られた知見を大図書館(ChromaDB)に保存する司書。
+    抽出対象:
+    - 実装の工夫、エラーの解決策、アーキテクチャの決定事項。
+    - プロジェクト特有のルール。
+    - 検索で得られた新仕様。
+    - 試行錯誤の履歴(attempt_history)から「失敗パターン」と「成功コード」。
+    - 🚨 [NEW] (is_failure=True時) 致命的な失敗の原因を徹底分析し、二度と同じミスを繰り返さないための「地雷マップ(Avoidance Rules)」を作成する！
+    ルール:
+    必ず指定の TOOL_CALL 形式（1行に1つ）で出力すること。
+    [フォーマット1: 全体ルール保存] TOOL_CALL: save_core_rule | <ルール名> | <詳細>
+    [フォーマット2: 経験の保存] TOOL_CALL: archive_experience | [Failure Pattern] <エラー原因> -> [Success Snippet/Avoidance] <解決策・回避策>
     """
-    search_hint = f"\n## 今回得られた新知見 (Telescope Insights)\n{search_results}\n※この最新仕様とこれまでの書き方の違いなどを優先的にアーカイブすること。" if search_results else ""
+    search_hint = f"\n## New Insights (Research Data)\n{search_results}\nArchive any new specifications or differences found." if search_results else ""
+    history_hint = f"\n## Trial & Error History\n{attempt_history_str}\nAnalyze this history to extract 'Failure Patterns' and their 'Success Snippets'." if attempt_history_str else ""
+    
+    failure_directive = ""
+    if is_failure:
+        failure_directive = """
+## 🚨 CRITICAL FAILURE ANALYSIS MODE 🚨
+The mission ultimately FAILED after maximum retries. 
+Your primary objective is NO LONGER to extract success stories, but to deeply analyze WHY the process failed and to map out the "Anti-Patterns" (Landmines).
+- What logic was fundamentally flawed?
+- What repeating errors occurred during the attempt history?
+- Extract these fatal mistakes and formulate clear "Avoidance Rules" (Negative Knowledge) to prevent future agents from making the same errors.
+"""
 
     return f"""\
-あなたはARKのReflector SYLPHです。今回の経験をアーカイブしてください。
+You are the Reflector Agent. Your task is to archive the experience and knowledge gained from this mission.
+{failure_directive}
+## Extraction Targets{search_hint}{history_hint}
+- Code implementations, solutions to errors, and architectural decisions.
+- Project-specific rules or user preferences.
+- If in Failure Mode, focus heavily on extracting Anti-Patterns and Avoidance Rules.
 
-## 記憶すべきポイント{search_hint}
-- 今回実装したコードの工夫や、エラーを解決した知見。
-- ユーザーからの強い要望やプロジェクト独自のルール。
+## Tool Usage Instructions (Strict)
+Use the following format to call tools. One tool call per line.
 
-## 記憶ツールの使用
-TOOL_CALL: save_core_rule | ルール名 | 内容
-TOOL_CALL: archive_experience | 知見の要約
+1. Save a core project rule (or Avoidance Rule):
+TOOL_CALL: save_core_rule | <rule_name_snake_case> | <rule_description>
 
-ゴール: {goal}
-変更ファイル: {", ".join(files)}
+2. Archive an experience/solution/anti-pattern:
+TOOL_CALL: archive_experience | [Failure Pattern] <What failed/Error> -> [Success Snippet/Avoidance] <How it was solved/How to avoid it>
+
+[Example Archive]
+TOOL_CALL: archive_experience | [Failure Pattern] FastAPI OPTIONS request causes CORS error -> [Success Snippet] Configure CORSMiddleware allow_methods to include "*" for preflight requests.
+TOOL_CALL: archive_experience | [Failure Pattern] Agent repeatedly tried to use non-existent DOM element -> [Avoidance] Always add a DOM wait/check logic before manipulating elements in JS.
+
+Goal: {goal}
+Modified Files: {", ".join(files)}
 """
 
 # ---------------------------------------------------------------------------
-# Garbage Collection (GC) Prompt 💋 [NEW PHASE 10-2]
+# Garbage Collection (GC) Prompt
 # ---------------------------------------------------------------------------
 
 def build_gc_prompt(current_memory_dump: str) -> str:
     """
     Reflector 向けの記憶整理（ガベージコレクション）用プロンプト。
-    大図書館の司書モード起動！
+    
+    【日本語の意訳・指示の狙い】
+    役割: 定期的に記憶データベースの重複・矛盾を整理する司書。
+    ルール:
+    1. 似たようなルールや経験を統合(Deduplication)する。
+    2. 古い情報と新しい情報で矛盾があれば、最新または汎用的な方を残す。
+    3. 無意味なプレースホルダーデータ（例："rule_name"）は削除する。
+    4. Markdownの装飾(```json)を含めず、純粋でパース可能なJSON文字列のみを出力すること。
     """
     return f"""\
-あなたはARK（自律型開発システム）の大図書館を管理する優秀な司書（Reflector SYLPH）です。
-以下の「現在の記憶ダンプ」を読み込み、以下のルールに従って記憶を再構築してください。
+You are the Reflector Agent managing the knowledge base.
+Analyze the provided "Current Memory Dump" and reconstruct it following these rules:
 
-【整理の掟】
-1. 重複の排除: 似たようなルールや知見は1つに統合してください。
-2. 矛盾の解消: 古い情報と新しい情報が矛盾している場合は、より汎用的・最新と思われる方を採用してください。
-3. ゴミの削除: 「ルール名」「内容」「知見の要約」といった無意味なプレースホルダーデータは完全に削除してください。
-4. 出力フォーマット: 必ず以下の厳格なJSONフォーマットのみを出力してください。Markdownの```json などの修飾は一切不要です。純粋なJSON文字列だけを返してください。
+## Reorganization Rules
+1. Deduplication: Merge similar rules or experiences.
+2. Conflict Resolution: If old and new information conflict, keep the most recent or generic one.
+3. Clean Up: Remove meaningless placeholder data (e.g., "rule_name", "experience_summary").
+4. Output Format: Output ONLY a valid JSON string. Do not include markdown code blocks like ```json.
 
-【出力JSONフォーマットの例】
+## Example Output Format
 {{
   "core_rules": {{
-    "tech_stack": "Next.jsとPythonを使用する",
-    "naming_convention": "変数名はスネークケース"
+    "tech_stack": "Use Next.js and Python",
+    "naming_convention": "Variables must be snake_case"
   }},
   "experiences": [
     {{
-      "summary": "FastAPIでCORSエラーが出た場合はミドルウェアを追加して解決する。",
+      "summary": "To fix FastAPI CORS errors, add CORSMiddleware.",
       "source": "local_execution",
       "trust_level": "verified"
     }}
   ]
 }}
 
-【現在の記憶ダンプ（対象データ）】
+## Current Memory Dump
 {current_memory_dump}
 """
 
@@ -342,10 +420,14 @@ def build_gc_prompt(current_memory_dump: str) -> str:
 
 def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
     """
-    Gitコミットメッセージ生成用。
+    Gitコミットメッセージ生成用プロンプト。
+    
+    【日本語の意訳・指示の狙い】
+    指定されたゴールと変更ファイル一覧から、
+    <type>: <description> 形式の英語のコミットメッセージを1行で生成させる。
     """
     return f"""\
-ゴール: {goal}
-変更ファイル: {", ".join(files)}
-上記に基づき、1行のGitコミットメッセージを生成せよ。形式: <type>: <description> (English)
+Goal: {goal}
+Modified Files: {", ".join(files)}
+Generate a single-line git commit message based on the above. Format: <type>: <description> (English)
 """
