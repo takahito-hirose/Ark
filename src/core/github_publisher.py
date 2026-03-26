@@ -8,6 +8,7 @@ Pull Request の作成を専門に担当するモジュール。
 import os
 import logging
 import re
+import subprocess
 from typing import Optional
 from src.core.dock import Dock
 
@@ -45,7 +46,7 @@ def publish_to_github(
         if is_new_project:
             log.info("🏗️ [Publisher] GitHub に新規リモートリポジトリを建造中...")
             
-            # リポジトリ名のクレンジング (GitHub は英数字、ハイフン、アンダースコア、ドットのみ許可)
+            # リポジトリ名のクレンジング
             raw_name = dock.path.name
             repo_name = re.sub(r'[^a-zA-Z0-9._-]', '-', raw_name)
             
@@ -53,18 +54,16 @@ def publish_to_github(
             if len(goal) > 100:
                 description += "..."
             
-            # GitTool.create_remote_repo を呼び出し
             repo_url = dock.git.create_remote_repo(
                 name=repo_name,
                 description=description,
-                private=True  # デフォルトはプライベート。公開したい場合はここを変えてね💋
+                private=True
             )
             
             if repo_url:
                 dock.git.setup_dock(repo_url)
                 log.info("✅ [Publisher] リモートリポジトリ '%s' とのリンクに成功したわ！", repo_name)
             else:
-                # すでにリポジトリがある場合などは GitTool 側でログが出ているはず
                 log.warning("⚠️ [Publisher] リモートの準備が完全ではないけれど、ローカル操作を続行するわね。")
         
         elif not is_url:
@@ -72,6 +71,28 @@ def publish_to_github(
 
         # 2. 作業用トピックブランチを作成
         branch_name = dock.git.create_topic_branch(task_id)
+
+        # --- 🌟 NEW: Push前にリモートURLへ魔法の鍵(TOKEN)を強制注入 ---
+        try:
+            log.info("🔐 [Publisher] Gitの認証バイパス処理を実行中...")
+            # 現在の origin URL を取得
+            result = subprocess.run(
+                ["git", "config", "--get", "remote.origin.url"],
+                cwd=dock.path, capture_output=True, text=True
+            )
+            origin_url = result.stdout.strip()
+
+            # URLにトークンが含まれていなければ埋め込む
+            if origin_url and origin_url.startswith("https://") and "@" not in origin_url:
+                auth_url = origin_url.replace("https://", f"https://{github_token}@")
+                subprocess.run(
+                    ["git", "remote", "set-url", "origin", auth_url],
+                    cwd=dock.path, check=True
+                )
+                log.info("✅ [Publisher] リモートURLに魔法の鍵をセットアップ完了！")
+        except Exception as e:
+            log.warning("⚠️ [Publisher] 認証URLのセットアップ中に問題発生: %s", e)
+        # -------------------------------------------------------------
 
         # 3. リモートへ Push
         log.info("[Publisher] ブランチ '%s' をリモートに Push 中...", branch_name)

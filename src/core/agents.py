@@ -2,11 +2,12 @@
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
 エージェントの「知能」と「規律」を司るプロンプト工場。
-小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素を排除し、
-厳格なシステムプロンプトとして最適化しています。
+小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
+複雑な差分フォーマット(SEARCH/REPLACE)の強制を排除し、
+常に「完全なコード」を出力させる厳格なシステムプロンプトとして最適化しました💋
 
 ※各関数のDocstring（関数直下のコメント）に、
-  生成される英語プロンプトの「日本語での意訳・狙い」を記載しています。
+  生成される英語プロンプトの「日本語での意訳・狙い」を詳細に記載しています。
 """
 
 from __future__ import annotations
@@ -81,14 +82,14 @@ def build_architect_prompt(
     goal: str, 
     workspace_path: Path, 
     blueprints: str = "",
-    core_rules: str = "",       # 🌟 [NEW] コアルールを受け取る口！
-    past_experiences: str = ""  # 🌟 [NEW] 過去の成功/失敗経験を受け取る口！
+    core_rules: str = "",
+    past_experiences: str = ""
 ) -> str:
     """
     Architect 向けのプロンプトを構築します。
     
     【日本語の意訳・指示の狙い】
-    役割: 既存のワークスペースと「過去の記憶」に基づいて修正計画を立てるアーキテクト。
+    役割: 既存のワークスペースと「過去の記憶」に基づいて修正計画を立てるアーキテクト（設計者）。
     ルール:
     1. TARGET_FILES にはファイル名のみを出力すること（パス名を含めない）。
     2. 新規作成よりも既存ファイルの修正を優先すること。
@@ -107,8 +108,6 @@ def build_architect_prompt(
         new_project_hint = "\n[Notice] Workspace is currently empty. Determine appropriate file names for the new project.\n"
 
     blueprints_section = f"## Project Blueprints (AST Outlines)\n{blueprints}\n" if blueprints else ""
-    
-    # 🌟 記憶の注入セクション💋
     rules_section = f"## 📜 Core Project Rules\n{core_rules}\n(You MUST adhere to these global rules.)\n" if core_rules else ""
     exp_section = f"## 🧠 Past Experiences & Avoidance Rules\n{past_experiences}\n(Pay VERY close attention to past failure patterns and DO NOT repeat them.)\n" if past_experiences else ""
 
@@ -147,19 +146,20 @@ def build_coder_prompt(
     workspace_path: Path,
     reviewer_feedback: str = "",
     search_results: str = "",
-    core_rules: str = "" # 🌟 [NEW] Coderも全体ルールを知る必要があるわ！
+    core_rules: str = ""
 ) -> str:
     """
-    Coder 向けのプロンプトを構築します。
+    Coder 向けのプロンプト（完全コード出力版）。
     
     【日本語の意訳・指示の狙い】
-    役割: 指示通りに正確にコードを修正するコーダー。SEARCH/REPLACEパッチ形式を絶対厳守する。
+    役割: 指示通りに正確にコードを修正するコーダー。
+    ★重要変更★ 差分(SEARCH/REPLACE)形式での出力をやめさせ、**常にファイルの完全なコード(Full Code)** を出力させます。
     ルール:
-    1. 完全一致: SEARCHブロック内は、既存ファイルのコードと「1文字・1スペースの狂いもなく」完全に一致させること。
-    2. 新規ファイル: 完全な新規ファイルの場合はSEARCHブロックの中身を空にすること。
-    3. 無駄話禁止: コードブロック（パッチ）だけを出力し、会話文や解説を一切書かないこと。
+    1. 完全出力: コードの一部を省略したりせず、ファイル全体のコードを出力すること。
+    2. マーカー禁止: Gitのコンフリクトマーカー（<<<<<<<など）や差分表現は絶対に使わないこと。
+    3. 無駄話禁止: コードブロックだけを出力し、会話文や解説を一切書かないこと。
     特記事項: 
-    - 検索結果(search_results)がある場合は、それを「最優先の知識」として実装に反映させる。
+    - 検索結果(search_results)がある場合は、それを最優先の知識として実装に反映させる。
     - 全体ルール(core_rules)がある場合は、命名規則などに従う。
     - 以前失敗した場合は reviewer_feedback が渡され、同じミスを防ぐ。
     """
@@ -181,24 +181,23 @@ def build_coder_prompt(
     feedback_section = f"## Reviewer Feedback from previous failure:\n{reviewer_feedback}\n" if reviewer_feedback else ""
 
     return f"""\
-You are the Coder Agent. Your task is to implement the goal using precise SEARCH/REPLACE blocks.
+You are the Coder Agent. Your task is to implement the goal by outputting the FULL, completely updated code for the target files.
 {rules_section}{search_section}
-## Strict Rules for SEARCH/REPLACE
-1. EXACT MATCH: The content inside `<<<<<<< SEARCH` MUST perfectly match the existing file content (including spaces and indentation).
-2. NEW FILES: For completely new files, leave the `SEARCH` block empty.
+## Strict Rules for Code Generation
+1. FULL FILE CONTENT: You MUST output the entire, complete code for the file. Do not truncate or omit any parts of the code.
+2. NO DIFF MARKERS: NEVER use git conflict markers or diff blocks (e.g., `<<<<<<<`, `=======`, `>>>>>>>`).
 3. NO EXPLANATIONS: Provide ONLY the code blocks. Do not add conversational text or markdown explanations outside the code block.
 
 ## Example Format
-FILE: example.py
+FILE: main.py
 ```python
-<<<<<<< SEARCH
-def process_data():
-    pass
-=======
-def process_data():
-    print("Processing...")
-    return True
->>>>>>> REPLACE
+import os
+
+def main():
+    print("Complete file code goes here")
+
+if __name__ == "__main__":
+    main()
 ```
 
 ## Task Details
@@ -210,7 +209,7 @@ CONSTRAINTS: {constraints_text}
 
 Attempt: {retry}
 {feedback_section}
-Output the patch using the SEARCH/REPLACE format now.
+Output the complete, fully updated code now.
 """
 
 # ---------------------------------------------------------------------------
@@ -219,13 +218,13 @@ Output the patch using the SEARCH/REPLACE format now.
 
 def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_reason, stacktrace, current_source, attempt_history=None) -> str:
     """
-    エラー発生時の自己修復用プロンプト。
+    エラー発生時の自己修復用プロンプト（完全コード出力版）。
     
     【日本語の意訳・指示の狙い】
     役割: 実行時エラーを修正する緊急コーダー。
     指示内容: 前回の実行で発生したエラー理由とスタックトレースを読み込み、
-             原因を修正した正しいコードをSEARCH/REPLACE形式で出力し直すこと。
-             会話文は一切不要。
+             原因を修正した **正しい完全なコード** を出力し直すこと。
+             会話文は一切不要。Diffマーカーも使用禁止。
     """
     target_file = Path(target_files[0]).name if target_files else "unknown.py"
     return f"""\
@@ -240,17 +239,14 @@ GOAL: {goal}
 {stacktrace}
 
 ## Instructions
-Fix the error and output the corrected code using the SEARCH/REPLACE format.
+Fix the error and output the ENTIRE corrected code.
+DO NOT use diff markers (e.g., `<<<<<<<`, `>>>>>>>`). Output the full file content.
 Do not include any conversational text.
 
 ## Output Format
 FILE: {target_file}
 ```python
-<<<<<<< SEARCH
-<Current buggy code>
-=======
-<Corrected code>
->>>>>>> REPLACE
+<Entire Corrected Code Here>
 ```
 """
 
@@ -273,7 +269,8 @@ def build_reviewer_prompt(
     評価基準:
     1. ユーザーの目的(Goal)を達成しているか。
     2. 受け入れ基準(Acceptance Criteria)を満たしているか。
-    3. SEARCH/REPLACEのフォーマットが論理的に正しいか。
+    3. ★重要変更★ コードの完全性(Code Integrity)。<<<<<<< などのGitコンフリクトマーカーや、
+       シンタックスエラーを起こすようなゴミがコードに混入していないかを確認する。
     4. (検索結果がある場合) 最新のリサーチ情報が正しく反映されているか。
     出力フォーマット:
     VERDICT: PASS or FAIL
@@ -293,7 +290,7 @@ You are the Reviewer Agent. Evaluate the provided code and determine if it meets
 ## Evaluation Criteria
 1. Goal Fulfillment: {goal}
 2. Acceptance Criteria: {acceptance}
-3. Patch Format: Ensure the SEARCH/REPLACE block is logically correct.
+3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers (e.g., `<<<<<<<`, `=======`, `>>>>>>>`) or syntax errors.
 
 ## Output Format (Strictly follow this structure)
 VERDICT: PASS or FAIL
@@ -312,7 +309,7 @@ def build_reflector_prompt(
     code_summary: str, 
     search_results: str = "",
     attempt_history_str: str = "",
-    is_failure: bool = False # 🌟 追加！
+    is_failure: bool = False
 ) -> str:
     """
     Reflector 向けのプロンプト（記憶抽出用）。
@@ -324,7 +321,7 @@ def build_reflector_prompt(
     - プロジェクト特有のルール。
     - 検索で得られた新仕様。
     - 試行錯誤の履歴(attempt_history)から「失敗パターン」と「成功コード」。
-    - 🚨 [NEW] (is_failure=True時) 致命的な失敗の原因を徹底分析し、二度と同じミスを繰り返さないための「地雷マップ(Avoidance Rules)」を作成する！
+    - 🚨 (is_failure=True時) 致命的な失敗の原因を徹底分析し、二度と同じミスを繰り返さないための「地雷マップ(Avoidance Rules)」を作成する！
     ルール:
     必ず指定の TOOL_CALL 形式（1行に1つ）で出力すること。
     [フォーマット1: 全体ルール保存] TOOL_CALL: save_core_rule | <ルール名> | <詳細>

@@ -3,20 +3,20 @@ ARK — API Server (The Neural Link)
 ==================================
 ARKのオーケストレーターをAPIとして公開し、WebSocket経由で思考プロセスを
 リアルタイムにストリーミング配信する。
+(server.py と仕様を完全に同期：Treasury連携済み)
 """
 
 import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# ここで Orchestrator などのインポートが続くわ...
 from src.core.orchestrator import Orchestrator, Phase
 
 load_dotenv()
@@ -63,15 +63,20 @@ manager = ConnectionManager()
 
 class CommandRequest(BaseModel):
     command: str
-    mode: str = "ECO"
-    workspace_path: str | None = None
+    workspace_path: Optional[str] = None
+    auto_approve_search: bool = False
+    architect_provider: Optional[str] = None
+    coder_provider: Optional[str] = None
+    reviewer_provider: Optional[str] = None
+    reflector_provider: Optional[str] = None
 
 def create_status_callback(loop: asyncio.AbstractEventLoop):
     def callback(phase: Phase, status: str, retry_count: int, detail: str = ""):
+        phase_name = phase.value if hasattr(phase, 'value') else phase
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "ARK_EVENT",
-                "phase": phase.value,
+                "phase": phase_name,
                 "status": status,
                 "retry_count": retry_count,
                 "detail": detail,
@@ -82,19 +87,29 @@ def create_status_callback(loop: asyncio.AbstractEventLoop):
     return callback
 
 def create_token_usage_callback(loop: asyncio.AbstractEventLoop):
-    def callback(tokens_used: int):
+    def callback(tokens_used: int, cost: float = 0.0):
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "TOKEN_USAGE",
-                "tokens": tokens_used
+                "tokens": tokens_used,
+                "cost": cost
             }),
+            loop
+        )
+    return callback
+
+def create_cost_update_callback(loop: asyncio.AbstractEventLoop):
+    """🌟 NEW: Treasuryのコスト情報を横流しするコールバック"""
+    def callback(payload: dict):
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast(payload),
             loop
         )
     return callback
 
 @app.get("/")
 def read_root():
-    return {"status": "ARK Online", "version": "4.5.1-dock"}
+    return {"status": "ARK Online", "version": "11.2-link"}
 
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
@@ -105,27 +120,45 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-async def run_ark_mission(goal: str, mode: str = "ECO", workspace_path: str | None = None):
+async def run_ark_mission(req: CommandRequest):
     loop = asyncio.get_running_loop()
-    orc = Orchestrator(
-        on_status_change=create_status_callback(loop),
-        on_token_usage=create_token_usage_callback(loop),
-        mode=mode,
-        workspace_path=workspace_path
-    )
-    await loop.run_in_executor(None, orc.run, goal)
+    
+    config_overrides = {}
+    if req.architect_provider: config_overrides["architect_provider"] = req.architect_provider
+    if req.coder_provider: config_overrides["coder_provider"] = req.coder_provider
+    if req.reviewer_provider: config_overrides["reviewer_provider"] = req.reviewer_provider
+    if req.reflector_provider: config_overrides["reflector_provider"] = req.reflector_provider
+
+    try:
+        orc = Orchestrator(
+            on_status_change=create_status_callback(loop),
+            on_token_usage=create_token_usage_callback(loop),
+            on_cost_update=create_cost_update_callback(loop), # 🌟 追加
+            workspace_path=req.workspace_path,
+            auto_approve_search=req.auto_approve_search,
+            config_overrides=config_overrides
+        )
+        await loop.run_in_executor(None, orc.run, req.command)
+    except Exception as e:
+        logger.error("❌ Orchestrator failed: %s", e)
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "ARK_EVENT",
+                "phase": "BLOCKED",
+                "status": "CRITICAL_ERROR",
+                "detail": str(e)
+            }),
+            loop
+        )
 
 @app.post("/api/command")
 async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks):
     logger.info("💬 Command Received from HUD: %s", req.command)
-    background_tasks.add_task(run_ark_mission, goal=req.command, mode=req.mode, workspace_path=req.workspace_path)
+    background_tasks.add_task(run_ark_mission, req=req)
     return {"message": "Mission accepted", "level": "success"}
 
-# --- ここが重要！ ---
 if __name__ == "__main__":
     import uvicorn
-    # reload_dirs に "src" を指定することで、
-    # workspace フォルダ（仮想環境など）の変更で再起動しないようにするわ！
     uvicorn.run(
         "src.api.main:app", 
         host="0.0.0.0", 

@@ -6,18 +6,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Viewport3D from '@/components/Viewport3D';
 import { useArkStore } from '../store/useArkStore';
 
-/**
- * 🚢 PROJECT ODISSEY - REFINED COMMAND DECK
- * 下部ブロックを3カラム・等高に配置したプロフェッショナルHUDよ💋
- */
 export default function App() {
   const {
     phase,
     isThinking,
     hasError,
     logs,
-    goldCoins,
-    mode,
+    sessionCost,
+    sessionTokens,
+    modelOverrides,
     isAwaitingSearchApproval,
     pendingSearchQuery,
     autoApproveSearch,
@@ -26,7 +23,8 @@ export default function App() {
     setHasError,
     addLog,
     spendCoins,
-    setMode,
+    updateTreasury,
+    setModelOverride,
     setSearchApprovalRequest,
     clearSearchApproval,
     toggleAutoApprove
@@ -41,7 +39,6 @@ export default function App() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // URLリンク化関数
   const renderMessage = (msg: string) => {
     if (!msg) return "";
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -49,8 +46,8 @@ export default function App() {
     return parts.map((part, i) => {
       if (part.match(urlRegex)) {
         return (
-          <a 
-            key={i} href={part} target="_blank" rel="noopener noreferrer" 
+          <a
+            key={i} href={part} target="_blank" rel="noopener noreferrer"
             className="text-cyan-400 underline hover:text-pink-400 transition-all cursor-pointer pointer-events-auto"
           >
             {part}
@@ -61,13 +58,37 @@ export default function App() {
     });
   };
 
-  // WebSocket 同期
   useEffect(() => {
     const connectWebSocket = () => {
       const socket = new WebSocket('ws://127.0.0.1:8000/ws/logs');
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // 💡 ノア師匠のデバッグ用: 
+          // 画面が更新されない場合、以下のコメントアウトを外して開発者ツールのConsoleを見てください！
+          // console.log("📡 WS DATA RECEIVED:", data);
+
+          // 🌟 ノア師匠の改修: バックエンドから送られてくるプロパティ名 (cost, total_usd, tokens, total_tokens) を網羅的に拾います！
+          if (
+            data.type === 'TOKEN_USAGE' ||
+            data.type === 'TREASURY_UPDATE' ||
+            data.total_usd !== undefined ||
+            data.cost !== undefined ||
+            data.total_tokens !== undefined ||
+            data.tokens !== undefined
+          ) {
+            const currentTokens = data.tokens ?? data.total_tokens;
+            const currentCost = data.cost ?? data.total_usd ?? data.total_cost;
+
+            if (currentTokens !== undefined) {
+              spendCoins(currentTokens);
+            }
+            if (currentCost !== undefined && currentTokens !== undefined) {
+              updateTreasury(currentCost, currentTokens);
+            }
+          }
+
           if (data.type === 'SEARCH_REQUEST') {
             setSearchApprovalRequest(data.query);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🔭 リサーチ要求: "${data.query}"`, level: 'warning' });
@@ -81,8 +102,6 @@ export default function App() {
             if (data.phase) setPhase(data.phase.toUpperCase() as any);
             if (data.status === 'FINISH' || data.phase === 'DONE') setThinking(false);
             if (data.status === 'ERROR') setHasError(true);
-          } else if (data.type === 'TOKEN_USAGE') {
-            spendCoins(data.tokens);
           }
         } catch (e) { console.error(e); }
       };
@@ -91,7 +110,7 @@ export default function App() {
     };
     connectWebSocket();
     return () => ws?.close();
-  }, [addLog, setPhase, setThinking, setHasError, spendCoins, setSearchApprovalRequest]);
+  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest]);
 
   const handleSearchApproval = (approved: boolean) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -114,7 +133,7 @@ export default function App() {
     setCommand('');
     setThinking(true);
     setHasError(false);
-    
+
     addLog({
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
       agent: 'CAPTAIN',
@@ -123,10 +142,20 @@ export default function App() {
     });
 
     try {
+      const payload = {
+        command: currentCommand,
+        auto_approve_search: autoApproveSearch,
+        workspace_path: targetPath.trim() || undefined,
+        architect_provider: modelOverrides.architect,
+        coder_provider: modelOverrides.coder,
+        reviewer_provider: modelOverrides.reviewer,
+        reflector_provider: modelOverrides.reflector
+      };
+
       await fetch('http://127.0.0.1:8000/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: currentCommand, mode, auto_approve: autoApproveSearch, workspace_path: targetPath.trim() || undefined })
+        body: JSON.stringify(payload)
       });
     } catch (e) {
       setHasError(true);
@@ -136,21 +165,19 @@ export default function App() {
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-black font-mono relative text-white select-none">
-      {/* 🌟 3D BACKGROUND */}
       <div className="fixed inset-0 z-0">
         <Canvas shadows camera={{ position: [0, 1.2, 8], fov: 45 }}>
           <Viewport3D />
         </Canvas>
       </div>
 
-      {/* 🌟 SEARCH APPROVAL MODAL */}
       <AnimatePresence>
         {isAwaitingSearchApproval && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 pointer-events-auto"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
               className="bg-slate-900 border-2 border-cyan-500 shadow-[0_0_60px_rgba(6,182,212,0.5)] p-8 rounded-lg max-w-md w-full relative"
             >
@@ -173,75 +200,94 @@ export default function App() {
       </AnimatePresence>
 
       <div className="fixed inset-0 z-20 p-6 flex flex-col pointer-events-none">
-        
-        {/* TOP HUD: TREASURY & SETTINGS */}
         <div className="flex justify-between items-start pointer-events-auto">
-          <div className="bg-slate-900/80 backdrop-blur-lg border border-cyan-500/40 p-4 rounded-sm w-80 shadow-2xl">
-             <div className="flex justify-between items-center mb-4">
-               <span className="text-[10px] font-bold text-cyan-400 tracking-widest flex items-center gap-2">
-                 <div className={`w-2 h-2 rounded-full ${isThinking ? 'bg-pink-500 animate-pulse' : 'bg-green-500'}`} />
-                 ARK TREASURY
-               </span>
-               <span className="text-xl font-bold text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.5)]">🪙 {goldCoins.toLocaleString()}</span>
-             </div>
-             <div className="grid grid-cols-2 gap-2 mb-3">
-               {['ECO', 'RICH'].map(m => (
-                 <button 
-                   key={m} onClick={() => setMode(m as any)}
-                   className={`py-1 text-[10px] border transition-all font-bold ${mode === m ? 'bg-cyan-500 text-black border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]' : 'text-gray-500 border-gray-700 hover:border-gray-500'}`}
-                 >
-                   {m} MODE
-                 </button>
-               ))}
-             </div>
-             <div className="flex items-center justify-between border-t border-cyan-500/10 pt-3">
-                <span className="text-[9px] text-gray-400 uppercase tracking-widest">Auto-Approve Research</span>
-                <button 
+          <div className="flex gap-4">
+            <div className="bg-slate-900/80 backdrop-blur-lg border border-cyan-500/40 p-4 rounded-sm w-72 shadow-2xl flex flex-col">
+              <div className="flex justify-between items-center mb-6">
+                <span className="text-[10px] font-bold text-cyan-400 tracking-widest flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${isThinking ? 'bg-pink-500 animate-pulse' : 'bg-green-500'}`} />
+                  ARK TREASURY
+                </span>
+                <div className="text-right flex flex-col items-end">
+                  <span className="text-2xl font-bold text-yellow-300 drop-shadow-[0_0_10px_rgba(253,224,71,0.6)]">
+                    ${sessionCost.toFixed(4)}
+                  </span>
+                  <span className="text-[10px] text-gray-400 tracking-wider">🪙 {sessionTokens.toLocaleString()} TOKENS</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-cyan-500/10 pt-4">
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-gray-400 uppercase tracking-widest">Auto-Approve</span>
+                  <span className="text-[8px] text-cyan-600">Research Mode</span>
+                </div>
+                <button
                   onClick={toggleAutoApprove}
-                  className={`w-10 h-5 rounded-full relative transition-colors ${autoApproveSearch ? 'bg-cyan-500' : 'bg-gray-700'}`}
+                  className={`w-12 h-6 rounded-full relative transition-all duration-300 ${autoApproveSearch ? 'bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]' : 'bg-gray-800'}`}
                 >
-                  <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoApproveSearch ? 'left-6' : 'left-1'}`} />
+                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-md ${autoApproveSearch ? 'left-7' : 'left-1'}`} />
                 </button>
-             </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 backdrop-blur-lg border border-purple-500/40 p-4 rounded-sm w-80 shadow-2xl">
+              <div className="text-[10px] font-bold text-purple-400 tracking-widest mb-3 flex justify-between items-center">
+                <span>CURRENT MODELS</span>
+                <span className="text-[8px] text-purple-600 font-normal">SOTA ENGINE SELECTOR</span>
+              </div>
+              <div className="space-y-2">
+                {(['architect', 'coder', 'reviewer', 'reflector'] as const).map(role => (
+                  <div key={role} className="flex justify-between items-center text-[10px]">
+                    <span className="uppercase text-gray-500 font-bold w-20">{role}</span>
+                    <select
+                      value={modelOverrides[role]}
+                      onChange={(e) => setModelOverride(role, e.target.value)}
+                      className="bg-black/60 border border-purple-500/20 text-purple-100 outline-none p-1.5 px-2 uppercase cursor-pointer hover:border-purple-400 transition-all w-44 text-[9px] font-bold tracking-tight"
+                    >
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                      <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                      <option value="deepseek-coder">DeepSeek Coder</option>
+                      <option value="ollama/qwen2.5-coder:7b">Ollama (Qwen 7B)</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="flex-1" />
 
-        {/* 🌟 BOTTOM COMMAND DECK (TRIPLE COLUMN - EQUAL HEIGHT) */}
         <div className="flex gap-4 pointer-events-auto h-[35vh] w-full shrink-0">
-          
-          {/* 1. SYLPH ACTIVITY LOG (Left - Flex 2) */}
           <div className="flex-[2] bg-slate-900/80 backdrop-blur-md border border-purple-500/40 rounded-sm flex flex-col overflow-hidden shadow-2xl">
-             <div className="p-2 border-b border-purple-500/20 bg-purple-500/10 text-[9px] text-purple-300 tracking-[0.3em] uppercase font-bold">SYLPH_ACTIVITY_STREAM</div>
-             <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar text-[11px]">
-                {logs.map((log, i) => (
-                  <div key={i} className={`flex gap-3 leading-relaxed ${log.level === 'warning' ? 'text-cyan-300 font-bold' : ''}`}>
-                    <span className="text-gray-600 shrink-0 font-normal">[{log.timestamp}]</span>
-                    <span className={`font-black shrink-0 ${log.agent === 'CAPTAIN' ? 'text-orange-400' : 'text-pink-400'}`}>{log.agent}:</span>
-                    <span className={`break-words ${log.level === 'error' ? 'text-red-400 font-bold' : 'text-gray-300'}`}>
-                      {renderMessage(log.message)}
-                    </span>
-                  </div>
-                ))}
-                <div ref={logsEndRef} />
-             </div>
-          </div>
-
-          {/* 2. VOYAGE PHASE (Middle - Flex 1) */}
-          <div className="flex-1 bg-slate-900/80 backdrop-blur-md border border-cyan-500/40 rounded-sm flex flex-col overflow-hidden shadow-xl">
-            <div className="p-2 border-b border-cyan-500/20 bg-cyan-500/10 text-[9px] text-cyan-300 tracking-[0.3em] uppercase font-bold">NAV_PHASE_MONITOR</div>
-            <div className="flex-1 flex flex-col justify-center p-6 space-y-4">
-               {['PLANNING', 'CODING', 'REVIEWING', 'COMMITTING', 'DONE'].map(p => (
-                 <div key={p} className={`flex items-center gap-4 text-[10px] font-black tracking-[0.2em] transition-all duration-500 ${phase === p ? 'text-cyan-400' : 'text-gray-700'}`}>
-                   <div className={`w-2.5 h-2.5 rounded-full transition-all duration-700 ${phase === p ? 'bg-cyan-400 shadow-[0_0_15px_#22d3ee] scale-125' : 'bg-gray-800'}`} />
-                   {p}
-                 </div>
-               ))}
+            <div className="p-2 border-b border-purple-500/20 bg-purple-500/10 text-[9px] text-purple-300 tracking-[0.3em] uppercase font-bold">SYLPH_ACTIVITY_STREAM</div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar text-[11px]">
+              {logs.map((log, i) => (
+                <div key={i} className={`flex gap-3 leading-relaxed ${log.level === 'warning' ? 'text-cyan-300 font-bold' : ''}`}>
+                  <span className="text-gray-600 shrink-0 font-normal">[{log.timestamp}]</span>
+                  <span className={`font-black shrink-0 ${log.agent === 'CAPTAIN' ? 'text-orange-400' : 'text-pink-400'}`}>{log.agent}:</span>
+                  <span className={`break-words ${log.level === 'error' ? 'text-red-400 font-bold' : 'text-gray-300'}`}>
+                    {renderMessage(log.message)}
+                  </span>
+                </div>
+              ))}
+              <div ref={logsEndRef} />
             </div>
           </div>
 
-          {/* 3. MISSION CONTROL (Right - Flex 1.5) */}
+          <div className="flex-1 bg-slate-900/80 backdrop-blur-md border border-cyan-500/40 rounded-sm flex flex-col overflow-hidden shadow-xl">
+            <div className="p-2 border-b border-cyan-500/20 bg-cyan-500/10 text-[9px] text-cyan-300 tracking-[0.3em] uppercase font-bold">NAV_PHASE_MONITOR</div>
+            <div className="flex-1 flex flex-col justify-center p-6 space-y-4">
+              {['PLANNING', 'CODING', 'REVIEWING', 'COMMITTING', 'DONE'].map(p => (
+                <div key={p} className={`flex items-center gap-4 text-[10px] font-black tracking-[0.2em] transition-all duration-500 ${phase === p ? 'text-cyan-400' : 'text-gray-700'}`}>
+                  <div className={`w-2.5 h-2.5 rounded-full transition-all duration-700 ${phase === p ? 'bg-cyan-400 shadow-[0_0_15px_#22d3ee] scale-125' : 'bg-gray-800'}`} />
+                  {p}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="flex-[1.5] bg-slate-900/90 border-t-4 border-cyan-500 rounded-sm flex flex-col shadow-2xl relative">
             <div className="absolute -top-3 left-4 bg-cyan-500 text-black text-[9px] px-3 py-0.5 font-bold tracking-widest">MISSION_CTRL_V2</div>
             <form onSubmit={handleCommandSubmit} className="flex-1 flex flex-col p-4 gap-3">
@@ -255,13 +301,13 @@ export default function App() {
               </div>
               <div className="relative flex-1">
                 <span className="absolute left-3 top-3 text-[10px] text-orange-500 font-bold">❯</span>
-                <textarea 
+                <textarea
                   value={command} onChange={(e) => setCommand(e.target.value)} disabled={isThinking}
-                  placeholder="指令を入力してください、船長💋"
+                  placeholder="船長！指令を入力してください"
                   className="w-full h-full bg-black/60 border border-gray-800 p-3 pl-7 text-xs text-white outline-none focus:border-cyan-500 focus:bg-black/80 resize-none custom-scrollbar placeholder:text-gray-700"
                 />
               </div>
-              <button 
+              <button
                 disabled={isThinking || !command.trim()}
                 className="w-full py-3 bg-cyan-500 text-black font-black text-[10px] tracking-[0.4em] uppercase hover:bg-cyan-400 disabled:opacity-30 disabled:grayscale transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-95"
               >
@@ -269,7 +315,6 @@ export default function App() {
               </button>
             </form>
           </div>
-
         </div>
       </div>
     </main>
