@@ -1,9 +1,11 @@
 """
-ARK — Bridge Server (The Final Fix) 🚀
+ARK — Bridge Server (The Final Fix)
 =====================================
-1. 通信ループの同期問題を解決
-2. 余計な監視ログを抑制
-3. workspace を監視から除外
+Phase 11.2: Treasury WebSocket Integration
+1. モード(ECO/RICH)の概念を完全に撤廃。
+2. UIからの動的なプロバイダー/モデル指定を受け入れ。
+3. 自動承認(auto_approve_search)フラグの導入。
+4. [REFACTOR] ハッキーなコスト計算を削除し、Orchestratorの `on_cost_update` に完全委譲。
 """
 
 import sys
@@ -33,7 +35,6 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
-# watchfiles と uvicorn のノイズをカット！💋
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 log = logging.getLogger("ARK.Bridge")
@@ -73,8 +74,12 @@ manager = ConnectionManager()
 
 class CommandRequest(BaseModel):
     command: str
-    mode: str = "ECO"
     workspace_path: Optional[str] = None
+    auto_approve_search: bool = False
+    architect_provider: Optional[str] = None
+    coder_provider: Optional[str] = None
+    reviewer_provider: Optional[str] = None
+    reflector_provider: Optional[str] = None
 
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
@@ -85,11 +90,10 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str], main_loop: asyncio.AbstractEventLoop):
+def run_orchestrator_sync(request: CommandRequest, main_loop: asyncio.AbstractEventLoop):
     """メインスレッドのループを使って報告するわ！💋"""
     
     def on_status_change(phase, status, retry_count, detail=""):
-        # メインループにブロードキャストを依頼する
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "ARK_EVENT",
@@ -101,25 +105,44 @@ def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str], m
             main_loop
         )
 
-    def on_token_usage(tokens):
+    def on_token_usage(tokens, cost: float = 0.0):
+        # 🌟 純粋なトークン消費イベント（コスト計算はTreasuryに委譲済み）
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "TOKEN_USAGE",
-                "tokens": tokens
+                "tokens": tokens,
+                "cost": cost
             }),
             main_loop
         )
 
+    def on_cost_update(payload: dict):
+        # 🌟 NEW: Treasuryからの詳細なコスト情報をUIへ横流しする！
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast(payload),
+            main_loop
+        )
+
+    config_overrides = {}
+    if request.architect_provider: config_overrides["architect_provider"] = request.architect_provider
+    if request.coder_provider: config_overrides["coder_provider"] = request.coder_provider
+    if request.reviewer_provider: config_overrides["reviewer_provider"] = request.reviewer_provider
+    if request.reflector_provider: config_overrides["reflector_provider"] = request.reflector_provider
+
     try:
-        log.info("🚢 Mission Launch: %s", goal)
+        log.info("🚢 Mission Launch: %s", request.command)
         orc = Orchestrator(
-            workspace_path=workspace_path,
+            workspace_path=request.workspace_path,
             on_status_change=on_status_change,
             on_token_usage=on_token_usage,
-            mode=mode
+            on_cost_update=on_cost_update,  # 🌟 コールバックを接続
+            auto_approve_search=request.auto_approve_search,
+            config_overrides=config_overrides
         )
-        orc.run(goal)
+        
+        orc.run(request.command)
         log.info("🏁 Mission Accomplished.")
+        
     except Exception as e:
         log.error("❌ Orchestrator failed: %s", e)
         asyncio.run_coroutine_threadsafe(
@@ -131,31 +154,3 @@ def run_orchestrator_sync(goal: str, mode: str, workspace_path: Optional[str], m
             }),
             main_loop
         )
-
-@app.post("/api/command")
-async def handle_command(request: CommandRequest, background_tasks: BackgroundTasks):
-    log.info("💬 Command Received: %s", request.command)
-    
-    # 現在のメインループを取得して渡す
-    main_loop = asyncio.get_running_loop()
-    
-    background_tasks.add_task(
-        run_orchestrator_sync, 
-        request.command, 
-        request.mode, 
-        request.workspace_path,
-        main_loop
-    )
-    return {"status": "accepted"}
-
-if __name__ == "__main__":
-    import uvicorn
-    # reload=True を使うなら、reload_dirs で src だけを指すのが安全よ！
-    # それでもダメなら reload=False にして手動起動が一番確実💋
-    uvicorn.run(
-        "src.api.server:app", 
-        host="0.0.0.0", 
-        port=8000, 
-        reload=True,
-        reload_dirs=["src"]
-    )

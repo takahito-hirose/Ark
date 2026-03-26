@@ -1,14 +1,9 @@
 """
 ARK (Autonomous Resilient Kernel) — Provider Factory
 =====================================================
-エージェントロール（architect / coder / reviewer / reflector）に対応する
-:class:`~src.core.providers.BaseProvider` インスタンスを生成するファクトリー。
-
-設定値の優先順位は :class:`~src.core.config.ARKConfig` に従う:
-
-1. 環境変数 ``ARK_ARCHITECT_PROVIDER`` 等
-2. ``config.yaml``
-3. デフォルト値 ``"ollama"``
+Phase 11.2: LiteLLM Router Fix
+Vertex AI への誤爆を防ぎ、Google AI Studio (Gemini API) を
+優先的に使用するようにモデル名のパースを強化したよ！
 """
 
 from __future__ import annotations
@@ -16,52 +11,17 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from src.core.providers import BaseProvider, GeminiProvider, MockProvider, OllamaProvider
+from src.core.providers import BaseProvider, UniversalProvider, MockProvider
 
 if TYPE_CHECKING:
     from src.core.config import ARKConfig
 
 log = logging.getLogger("ARK.Factory")
 
-
-# ---------------------------------------------------------------------------
-# Provider name → class mapping
-# ---------------------------------------------------------------------------
-
-_PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
-    "ollama": OllamaProvider,
-    "mock":   MockProvider,
-    "gemini": GeminiProvider,
-}
-
-
-# ---------------------------------------------------------------------------
-# Public factory function
-# ---------------------------------------------------------------------------
-
-# 🌟 第3引数に `mode: str = "ECO"` を追加！
-def get_provider(role: str, cfg: "ARKConfig", mode: str = "ECO") -> BaseProvider:
-    """エージェントロールに対応する :class:`BaseProvider` インスタンスを返す。
-
-    Parameters
-    ----------
-    role:
-        エージェントのロール名。
-        ``"architect"`` / ``"coder"`` / ``"reviewer"`` / ``"reflector"`` のいずれか。
-    cfg:
-        :class:`~src.core.config.ARKConfig` のインスタンス。
-    mode:
-        システムの動作モード (``"ECO"`` または ``"RICH"``)。
-        RICHの場合は強制的にGeminiプロバイダーを使用する。
-
-    Returns
-    -------
-    BaseProvider
-        指定されたロールに対応するプロバイダーインスタンス。
-    """
+def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
+    """エージェントロールに対応するプロバイダーを生成するよ！"""
     role_lower = role.lower().strip()
 
-    # ---- 1. ロールからプロバイダー属性名を解決 --------------------------------
     role_to_provider_attr: dict[str, str] = {
         "architect": "architect_provider",
         "coder":     "coder_provider",
@@ -70,69 +30,64 @@ def get_provider(role: str, cfg: "ARKConfig", mode: str = "ECO") -> BaseProvider
     }
 
     if role_lower not in role_to_provider_attr:
-        raise ValueError(
-            f"未知のロール名: {role!r}。"
-            f" 有効なロール: {list(role_to_provider_attr.keys())}"
-        )
+        raise ValueError(f"未知のロール名: {role!r}。")
 
-    # config からプロバイダー名（ollama/gemini等）を取得
-    provider_name: str = getattr(cfg, role_to_provider_attr[role_lower], "ollama").lower().strip()
+    raw_val: str = getattr(cfg, role_to_provider_attr[role_lower], "ollama").lower().strip()
 
-    # 🌟🌟🌟 ここが肝！RICHモードなら問答無用でGeminiにオーバーライド！ 🌟🌟🌟
-    if mode == "RICH":
+    provider_name = ""
+    model_name = ""
+
+    # 🌟 ノア特製・Vertex AI 誤爆防止パーサー
+    if raw_val.startswith("ollama/"):
+        provider_name = "ollama"
+        model_name = raw_val.replace("ollama/", "", 1)
+    elif "gemini" in raw_val:
         provider_name = "gemini"
+        # LiteLLM で Vertex AI ではなく Google AI Studio を使うには
+        # モデル名の先頭に "gemini/" をつけるのが確実なんだって！
+        if not raw_val.startswith("gemini/"):
+            model_name = f"gemini/{raw_val}"
+        else:
+            model_name = raw_val
+    elif "claude" in raw_val:
+        provider_name = "anthropic"
+        model_name = raw_val
+    elif "deepseek" in raw_val:
+        provider_name = "deepseek"
+        model_name = raw_val
+    else:
+        provider_name = raw_val
+        suffix = f"_{provider_name}" if provider_name != "ollama" else ""
+        model_attr_name = f"{role_lower}_model{suffix}"
+        model_name = getattr(cfg, model_attr_name, getattr(cfg, "model_name", "qwen2.5-coder:7b"))
 
-    # ---- 2. プロバイダー種別に応じてモデル属性名を解決 --------------------------
-    # Gemini の場合は _gemini サフィックスが付いたフィールド（例: coder_model_gemini）を優先するわ
-    is_gemini = (provider_name == "gemini")
-    suffix = "_gemini" if is_gemini else ""
-    
-    model_attr_name = f"{role_lower}_model{suffix}"
-    
-    # config からモデル名を取得。なければグローバルの cfg.model_name にフォールバック
-    model_name: str = getattr(cfg, model_attr_name, cfg.model_name)
+    log.info("Role %r → provider %r (model=%s)", role, provider_name, model_name)
 
-    # 🚨 セーフティネット: RICHモードでモデル名が未設定（ollamaのモデル名が入っちゃう場合）への対策
-    if mode == "RICH" and ("gemma" in model_name or "qwen" in model_name or "llama" in model_name or "phi" in model_name):
-        model_name = "gemini-2.5-flash"  # フォールバック用のGeminiモデル
-        log.warning(f"⚠️ [RICH MODE] {role} のGeminiモデルが未指定のため、強制的に {model_name} に設定しました。")
-
-    log.info("Role %r → provider %r (model=%s) [Mode=%s]", role, provider_name, model_name, mode)
-
-    # ---- 3. プロバイダーのビルド --------------------------------------------
     return _build_provider(provider_name, model_name, cfg)
 
-
 def _build_provider(provider_name: str, model_name: str, cfg: "ARKConfig") -> BaseProvider:
-    """プロバイダー名と設定からインスタンスを生成する内部ヘルパー。"""
-    if provider_name not in _PROVIDER_REGISTRY:
-        raise ValueError(
-            f"未登録のプロバイダー名: {provider_name!r}。"
-            f" 登録済み: {list(_PROVIDER_REGISTRY.keys())}"
-        )
+    """プロバイダー名と設定からインスタンスを生成するよ！"""
+    
+    if provider_name == "mock":
+        return MockProvider()
+
+    api_key = ""
+    api_base = ""
 
     if provider_name == "ollama":
-        provider = OllamaProvider(
-            api_endpoint=cfg.api_endpoint,
-            model_name=model_name,
-        )
-
-    elif provider_name == "mock":
-        provider = MockProvider()
-
+        api_base = getattr(cfg, "api_endpoint", "http://localhost:11434")
     elif provider_name == "gemini":
-        provider = GeminiProvider(
-            api_key=cfg.gemini_api_key,
-            model_name=model_name,
-        )
+        # ここで .env から読み込んだ GEMINI_API_KEY を確実に渡す！
+        api_key = getattr(cfg, "gemini_api_key", "")
+    elif provider_name in ["claude", "anthropic"]:
+        api_key = getattr(cfg, "anthropic_api_key", "")
+    elif provider_name == "deepseek":
+        api_key = getattr(cfg, "deepseek_api_key", "")
+    elif provider_name == "openai":
+        api_key = getattr(cfg, "openai_api_key", "")
 
-    else:
-        raise ValueError(f"未登録のプロバイダー名: {provider_name!r}")
-
-    log.debug("Built provider: %r", provider)
-    return provider
-
-
-def list_providers() -> list[str]:
-    """登録済みプロバイダー名の一覧を返す。"""
-    return sorted(_PROVIDER_REGISTRY.keys())
+    return UniversalProvider(
+        model_name=model_name,
+        api_key=api_key,
+        api_base=api_base
+    )

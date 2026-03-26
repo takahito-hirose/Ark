@@ -112,7 +112,6 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Failure Analytics:** 致命的な敗北から「地雷マップ」を生成する不屈の学習アルゴリズムの実装。
     - [x] **Auto RAG Injection:** 記憶を計画段階で自動注入し、過去の失敗を未然に防ぐ「予見能力」の獲得。
     - [x] **Memory Garbage Collection:** Reflectorによる自律的な記憶の再構築・整理整頓機能の実装。
-    - [x] **Provider Override (Rich/Eco):** システムモードに応じて最適な精霊（モデル）を自動召喚するプロトコルの刷新。
     - [ ] **Similarity Threshold Tuning:** ChromaDBの検索精度（コサイン類似度）の極限チューニング。
 - [ ] **Phase 11 (The Universal Port - MCP Integration):** 🌐 **VISION!**
     - **Model Context Protocol (MCP):** MCPを「万能接続ポート」として採用。ターミナルやGit操作だけでなく、Slack通知やデータベース操作、外部ドキュメント検索など、世界中の標準化されたツール（外部機器）をプラグイン感覚で自律的に使いこなす「超・汎用型ガレオン船」への進化。
