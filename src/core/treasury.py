@@ -1,8 +1,9 @@
 """
-ARK Treasury — 予算・コスト管理システム
+ARK Treasury — 予算・コスト管理システム (Advanced Edition)
 =======================================================================
 各エージェントのAPI利用コストを集計し、タスクごとの予算上限（Soft Cap / Hard Cap）
-を管理する。隠しプロパティへのアクセスを強化し、確実なコスト抽出を実現します。
+を管理します。LiteLLMからの精密なコストデータ（USD）を受け取り、HUD表示用に
+日本円（JPY）への換算も行います。
 """
 
 import logging
@@ -13,13 +14,18 @@ from src.core.models import Phase
 log = logging.getLogger("ARK.Treasury")
 
 class Treasury:
-    TASK_BUDGET_LIMIT: Final[float] = 1.0  # 1タスクあたりの予算上限(USD)
+    # 🌟 NEW: 予算設定と為替レート
+    TASK_BUDGET_LIMIT_USD: Final[float] = 1.0  # 1タスクあたりの予算上限(USD)
+    USD_TO_JPY_RATE: Final[float] = 150.0      # 簡易為替レート（必要に応じて外部API連携も可）
 
     def __init__(self, memory_dir: Path, config: Any):
         self._memory_dir = memory_dir
         self._config = config
         self._emergency_flag_path = self._memory_dir / "emergency_mode.flag"
         self._soft_cap_warned = False
+        
+        # 直近のトータルコストを保持するメモリ（差分計算用）
+        self._last_reported_total_usd = 0.0
 
         self._check_and_apply_emergency_override()
 
@@ -37,27 +43,42 @@ class Treasury:
             
         total_usd = self._calculate_total_cost(agents)
         
-        if total_usd >= (self.TASK_BUDGET_LIMIT * 0.8):
+        if total_usd >= (self.TASK_BUDGET_LIMIT_USD * 0.8):
             self._soft_cap_warned = True
-            log.warning(f"⚠️ [Soft Cap] 予算の80% (${total_usd:.4f}) に到達しました！このタスクは完遂まで現在のモデルで続行します。")
+            total_jpy = total_usd * self.USD_TO_JPY_RATE
+            log.warning(f"⚠️ [Soft Cap] 予算の80% (${total_usd:.4f} / 約¥{total_jpy:.1f}) に到達しました！")
             state_updater(current_phase, "WARNING", f"Budget Soft Cap Reached: ${total_usd:.4f}")
 
-    def get_realtime_usage_payload(self, agents: list[Any]) -> dict:
+    def get_realtime_usage_payload(self, agents: list[Any], agent_names: list[str]) -> dict:
         """
-        🌟 新機能: フロントエンド同期用のペイロードを生成します。
-        メインループ(ark.pyなど)から呼び出し、WebSocketで送信してください。
+        🌟 NEW: フロントエンド同期用のリッチなペイロードを生成。
+        差分（前回の送信からの増加分）も計算してUIに送ります。
         """
         total_usd = 0.0
         total_tokens = 0
-        for agent in agents:
+        details = {}
+
+        # 各エージェントの内訳を取得
+        for name, agent in zip(agent_names, agents):
             cost, tokens = self._extract_stats(agent)
             total_usd += cost
             total_tokens += tokens
+            details[name] = {"cost_usd": cost, "tokens": tokens}
+
+        # 差分（今回のAPIコール等で増えたコスト）を算出
+        incremental_cost_usd = total_usd - self._last_reported_total_usd
+        self._last_reported_total_usd = total_usd
+
+        total_jpy = total_usd * self.USD_TO_JPY_RATE
 
         return {
-            "type": "TREASURY_UPDATE",
-            "cost": float(total_usd),
-            "tokens": int(total_tokens)
+            "type": "COST_UPDATE",
+            "total_usd": float(total_usd),
+            "total_jpy": int(total_jpy),
+            "incremental_usd": float(incremental_cost_usd),
+            "total_tokens": int(total_tokens),
+            "details": details, # エージェントごとの内訳（UIの円グラフなどに使える！）
+            "budget_limit_usd": self.TASK_BUDGET_LIMIT_USD
         }
 
     def report_and_enforce_hard_cap(self, agents: list[Any], agent_names: list[str]) -> None:
@@ -71,20 +92,24 @@ class Treasury:
         for name, agent in zip(agent_names, agents):
             cost, tokens = self._extract_stats(agent)
             if cost > 0 or tokens > 0:
-                log.info(f"  - {name:10s}: ${cost:.5f} ({tokens} tokens)")
+                cost_jpy = cost * self.USD_TO_JPY_RATE
+                log.info(f"  - {name:10s}: ${cost:.5f} (約¥{cost_jpy:.2f}) - {tokens} tokens")
                 total_usd += cost
                 total_tokens += tokens
             else:
                 log.info(f"  - {name:10s}: $0.00000 (Free or 0 tokens)")
                 
+        total_jpy = total_usd * self.USD_TO_JPY_RATE
+        budget_jpy = self.TASK_BUDGET_LIMIT_USD * self.USD_TO_JPY_RATE
+
         log.info("-" * 60)
-        log.info(f"  💰 TOTAL COST:   ${total_usd:.5f} / Budget: ${self.TASK_BUDGET_LIMIT:.2f}")
+        log.info(f"  💰 TOTAL COST:   ${total_usd:.5f} (約¥{total_jpy:.2f}) / Budget: ${self.TASK_BUDGET_LIMIT_USD:.2f}")
         log.info(f"  📈 TOTAL TOKENS: {total_tokens}")
         log.info("=" * 60)
 
-        # 🚨 [Hard Cap] 最終精算で予算オーバーしていたらフラグを立てる！
-        if total_usd >= self.TASK_BUDGET_LIMIT:
-            log.warning(f"🚨 [Hard Cap] タスク予算({self.TASK_BUDGET_LIMIT}ドル)を超過して完遂しました！次期ミッションからローカルに強制移行します。")
+        # 🚨 [Hard Cap] 最終精算で予算オーバーしていたらフラグを立てる
+        if total_usd >= self.TASK_BUDGET_LIMIT_USD:
+            log.warning(f"🚨 [Hard Cap] タスク予算(${self.TASK_BUDGET_LIMIT_USD})を超過！次期ミッションからローカルに強制移行します。")
             self._emergency_flag_path.touch(exist_ok=True)
         else:
             if self._emergency_flag_path.exists():
@@ -97,19 +122,17 @@ class Treasury:
     def _extract_stats(self, agent: Any) -> tuple[float, int]:
         """
         隠蔽されたプロバイダー属性を確実に探し出し、コストとトークンを抽出します。
+        （プロバイダー側でLiteLLMのcompletion_costを利用していることが前提）
         """
-        # プロバイダーのインスタンスを探す（アンダースコア付きの隠しプロパティ対策）
         provider = getattr(agent, "provider", None) or getattr(agent, "_provider", None) or getattr(agent, "llm", None)
         if not provider:
             return 0.0, 0
         
-        # コストを探す
         cost = (getattr(provider, "session_cost", None) or 
                 getattr(provider, "total_cost", None) or 
                 getattr(provider, "cost", None) or 
                 0.0)
         
-        # トークンを探す
         tokens = (getattr(provider, "session_tokens", None) or 
                   getattr(provider, "total_tokens", None) or 
                   getattr(provider, "tokens", None) or 

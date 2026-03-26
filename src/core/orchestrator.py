@@ -111,7 +111,8 @@ class Orchestrator:
     def _broadcast_cost(self) -> None:
         """🌟 NEW: 現在の累積コストを上位レイヤー（UI）へ送信する"""
         if self.on_cost_update:
-            payload = self._treasury.get_realtime_usage_payload(self._agents)
+            # 💡 修正箇所: agent_names を追加してリッチなペイロードを要求する
+            payload = self._treasury.get_realtime_usage_payload(self._agents, self._agent_names)
             self.on_cost_update(payload)
 
     def run(self, goal: str, *, resume: bool = False) -> Path:
