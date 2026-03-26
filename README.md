@@ -119,6 +119,33 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
 > **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
 ---
+## 🛠️ 事前準備 (Environment Setup)
+
+ARKを初めて起動する際、または環境を最新に保つために、必要な資材（パッケージ）のインストールを行います。
+特にナビゲーションの中核となる `litellm` は更新頻度が非常に高いため、定期的なアップグレードを推奨します。
+
+### Windows環境の場合 (PowerShell / Command Prompt)
+
+```powershell
+# 1. 依存パッケージの一括インストール
+python -m pip install -r requirements.txt
+
+# ※ 特定のPythonパス（例: Python 3.11）を明示して実行する場合:
+# C:\Users\[USER]\AppData\Local\Programs\Python\Python311\python.exe -m pip install -r requirements.txt
+
+# 2. LiteLLMを最新版へアップグレード（推奨）
+python -m pip install --upgrade litellm
+```
+
+### Mac / Linux環境の場合 (Terminal)
+```powershell
+# 1. 依存パッケージの一括インストール
+python3 -m pip install -r requirements.txt
+
+# 2. LiteLLMを最新版へアップグレード（推奨）
+python3 -m pip install --upgrade litellm
+```
+
 
 ## ⚓️ 起動シークエンス (How to Run ARK)
 

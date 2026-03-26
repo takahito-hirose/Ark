@@ -1,10 +1,10 @@
 """
 ARK (Autonomous Resilient Kernel) — LLM Provider Definitions
 =============================================================
-Phase 10.9: The Treasury Update
+Phase 10.9: The Treasury Update (LiteLLM Enhanced)
 LiteLLM をベースにした「ユニバーサル・プロバイダー」により、
 Gemini, Claude, DeepSeek, Ollama など全てのモデルを単一のインターフェースで統括します。
-同時に、APIコスト（USD）とトークン使用量を累計で算出します。
+同時に、APIコスト（USD）とトークン使用量を極めて正確に算出します。
 """
 
 from __future__ import annotations
@@ -45,7 +45,9 @@ class BaseProvider(ABC):
         """
         プロンプトをLLMに送信し、テキスト応答と使用量（トークン＆コスト）を返す。
         戻り値の usage 辞書には以下を含めること:
-        - total_tokens (int): 消費トークン数
+        - prompt_tokens (int): 入力トークン数
+        - completion_tokens (int): 出力トークン数
+        - total_tokens (int): 消費トークン数合計
         - cost_usd (float): 推定コスト（USD）
         """
         ...
@@ -104,32 +106,39 @@ class UniversalProvider(BaseProvider):
             
             result_text = response.choices[0].message.content or ""
             
-            # トークン＆コスト計算
-            usage = response.usage.model_dump() if hasattr(response, 'usage') else {}
+            # 🌟 トークン内訳の抽出を強化
+            usage = response.usage.model_dump() if hasattr(response, 'usage') and response.usage else {}
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
             total_tokens = usage.get("total_tokens", 0)
             
             cost_usd = 0.0
-            if "ollama" not in self._model_name:
+            # ローカルモデル（Ollama等）以外ならコスト計算を実行
+            if "ollama" not in self._model_name.lower() and "local" not in self._model_name.lower():
                 try:
+                    # LiteLLMの神機能: これ一発で正確なコストが算出される
                     cost_usd = completion_cost(completion_response=response)
                 except Exception as e:
-                    log.debug(f"コスト計算スキップ: {e}")
+                    # 未対応モデルなどで計算失敗した場合はWarningを出して0.0ドル扱いにする
+                    log.warning(f"⚠️ [LiteLLM] {self._model_name} のコスト計算に失敗しました（未対応モデルの可能性）: {e}")
 
             # セッションの累計に加算
             self.session_tokens += total_tokens
             self.session_cost += cost_usd
 
             usage_stats = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
                 "cost_usd": cost_usd,
                 "model": self._model_name
             }
             
-            # 実行結果のログもフラットに事実のみを出力
+            # 実行結果のログ（内訳も表示）
             if cost_usd > 0:
-                log.info(f"[{self._model_name}] Tokens: {total_tokens} | Cost: ${cost_usd:.5f} (Total Session: ${self.session_cost:.5f})")
+                log.info(f"[{self._model_name}] Tokens: {total_tokens} (In:{prompt_tokens}/Out:{completion_tokens}) | Cost: ${cost_usd:.5f} (Total Session: ${self.session_cost:.5f})")
             else:
-                log.info(f"[{self._model_name}] Tokens: {total_tokens} | Cost: $0.00")
+                log.info(f"[{self._model_name}] Tokens: {total_tokens} (In:{prompt_tokens}/Out:{completion_tokens}) | Cost: $0.00")
 
             return result_text, usage_stats
 
@@ -159,7 +168,13 @@ class MockProvider(BaseProvider):
         
         self.session_tokens += estimated_tokens
         
-        usage = {"total_tokens": estimated_tokens, "cost_usd": 0.0}
+        usage = {
+            "prompt_tokens": estimated_tokens,
+            "completion_tokens": 0,
+            "total_tokens": estimated_tokens, 
+            "cost_usd": 0.0,
+            "model": "mock"
+        }
         
         if self.template:
             return self.template.replace("{prompt}", display_prompt), usage
