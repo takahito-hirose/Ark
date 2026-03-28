@@ -1,7 +1,7 @@
 """
 ARK Core — Data Models (Payloads & Envelope)
 =============================================
-Phase 11: The Eternal Helmsman Update
+Phase 11.5: The Eternal Helmsman Update (Next Course)
 All inter-SYLPH communication is typed via these dataclasses.
 Conforms to: specs/core_logic.md §2
 """
@@ -28,6 +28,7 @@ class Phase(str, Enum):
     REVIEWING  = "REVIEWING"
     COMMITTING = "COMMITTING"
     BLOCKED    = "BLOCKED"
+    PROPOSING  = "PROPOSING"  # 🌟 NEW: 次の航路を提案するフェーズを追加！
     DONE       = "DONE"
 
 # 🌟 NEW: サブタスクの進捗ステータスを追加！

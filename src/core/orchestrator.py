@@ -1,10 +1,10 @@
 """
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-Phase 11.4.1: Context Injection Hotfix
+Phase 11.5: Next Course Proposal
 Architectが生成した海図（WBS / SubTask）に基づき、複数のタスクを順次実行。
-Coderのプロンプトでソースコードが二重注入され、SyntaxErrorを引き起こす
-副作用を防止するため、reviewer_feedbackへのソースコード混入を遮断しました。
+ミッション完了後にArchitectが自動的に再起動し、
+「現状の達成度」から自律的に「次なる航路（Next Goal）」を提案する機能を追加。
 """
 
 from __future__ import annotations
@@ -205,7 +205,6 @@ class Orchestrator:
                                     content = target_path.read_text(encoding="utf-8")
                                     accumulated_context += f"### Prerequisite File: {Path(dep_file).name}\n```python\n{content}\n```\n"
 
-                    # 複数ファイルの現在のコードを取得 (remediate用)
                     current_source = ""
                     if plan.target_files and self.dock:
                         unique_targets = list(dict.fromkeys(plan.target_files))
@@ -215,8 +214,6 @@ class Orchestrator:
                                 content = target_file.read_text(encoding="utf-8")
                                 current_source += f"### File: {target}\n```python\n{content}\n```\n\n"
 
-                    # ⚠️修正箇所: reviewer_feedback 用には dependencies のコンテキストだけ残し、
-                    # current_source が二重注入されるのを防ぎます！
                     prompt_aug = accumulated_context
                     
                     if execution_feedback:
@@ -303,6 +300,33 @@ class Orchestrator:
             if last_code_result:
                 self._reflector.reflect(plan, last_code_result, attempt_history=attempt_history, is_failure=False)
 
+            # 🌟 NEW: Next Course Proposal (次なる航路の提示)
+            try:
+                # Phase に PROPOSING が追加されている前提で呼び出すよ！
+                if hasattr(Phase, "PROPOSING"):
+                    self._update_phase(Phase.PROPOSING, "START", "Architect is planning the next course...")
+                
+                # 完了したタスクのサマリーを作成
+                completed_tasks_summary = "\n".join([f"- [{t.id}] {t.title}: {t.description}" for t in plan.tasks])
+                
+                # Architectに次の目標を提案させる
+                next_course = self._architect.propose_next_course(original_goal, completed_tasks_summary)
+                
+                log.info(f"🧭 [Orchestrator] Next Course Proposal Ready!")
+                log.info(f"  🎯 Next Goal: {next_course.get('next_goal')}")
+                log.info(f"  📦 Artifacts: {next_course.get('expected_artifacts')}")
+                log.info(f"  ⚠️ Risks: {next_course.get('risks')}")
+                
+                if hasattr(Phase, "PROPOSING"):
+                    self._state.push_event(Phase.PROPOSING, "PROPOSED", f"Next Goal: {next_course.get('next_goal')}")
+                    self._state.save()
+                
+                # TODO: ここで提案された next_course をHUDに送信して承認待機する（Dual-Sailing Mode）
+                # または、自動モードならそのまま次の run() を再帰的に呼び出す処理を後で追加するよ！
+                
+            except Exception as e:
+                log.warning(f"⚠️ [Orchestrator] Failed to propose next course: {e}")
+
             self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
             self._broadcast_cost()
 
@@ -337,28 +361,22 @@ class Orchestrator:
         python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
         pip_cmd = ".venv/bin/pip" if os.name != "nt" else ".venv\\Scripts\\pip.exe"
 
-        # 1. 依存関係のインストール (requirements.txt があれば)
         if req_file or (self.dock.path / "requirements.txt").exists():
             self.dock.terminal.execute_command(f"{pip_cmd} install -r requirements.txt")
 
-        # 2. テストファイルが存在するかチェック
         test_files = [f.path for f in code.files if f.path.startswith("test_") or f.path.endswith("_test.py")]
         has_existing_tests = len(list(self.dock.path.glob("test_*.py"))) > 0
         
         if test_files or has_existing_tests:
-            # テストがあるなら無条件で pytest をインストールして実行するよ！
             self.dock.terminal.execute_command(f"{pip_cmd} install pytest")
-            # pytestコマンドを直接叩くのではなく、python -m pytest でモジュールとして実行すると環境パス問題が起きにくい
             result = self.dock.terminal.execute_command(f"{python_cmd} -m pytest -v")
             return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
 
-        # 3. テストがない場合、CLIツールなどを引数なしで実行してコケるのを防ぐため、構文チェックのみ実施
         main_files = [f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")]
         if not main_files: 
             return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
         
         for main_file in main_files:
-            # -m py_compile で実行せずに文法チェックだけ通す
             result = self.dock.terminal.execute_command(f"{python_cmd} -m py_compile {main_file}")
             if result.exit_code != 0:
                 return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)

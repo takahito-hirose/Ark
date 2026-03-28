@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -94,6 +95,46 @@ class ArchitectAgent(BaseAgent):
             task_id=task_id, 
             search_results=external_knowledge
         )
+
+    def propose_next_course(self, goal: str, workspace_state: str) -> dict:
+        """現在の状態から次の開発フェーズを提案する"""
+        
+        prompt = (
+            "あなたは優秀なソフトウェアアーキテクトです。\n"
+            "最終目標と現在のワークスペースの状態を比較し、次に着手すべき論理的な開発フェーズを提案してください。\n"
+            "出力は必ず以下のキーを持つJSON形式のみとしてください:\n"
+            "- next_goal: 次の目標（文字列）\n"
+            "- expected_artifacts: 変更・作成が予想されるファイルのリスト（文字列の配列）\n"
+            "- risks: 懸念事項やリスク（文字列）\n\n"
+            f"【最終目標】\n{goal}\n\n"
+            f"【現在のワークスペース状態】\n{workspace_state}\n\n"
+            "さあ、次の航路を提案してください。"
+        )
+        
+        log.info("🔭 [Architect] 次の航路を計算中...")
+        
+        response_text = self._call_llm(prompt)
+        
+        try:
+            # Markdownのコードブロック修飾などを取り除く安全策
+            cleaned_text = response_text.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+                
+            proposal = json.loads(cleaned_text.strip())
+            return proposal
+        except json.JSONDecodeError:
+            log.error("❌ [Architect] 提案のJSONパースに失敗しました。\nレスポンス: %s", response_text)
+            return {
+                "next_goal": "JSONパースエラーのため提案不可", 
+                "expected_artifacts": [], 
+                "risks": "LLMの出力フォーマット異常"
+            }
 
     # ------------------------------------------------------------------
     # Context & External Research Methods

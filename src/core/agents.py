@@ -1,7 +1,7 @@
 """
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
-Phase 11.4: Remediation Context Fix
+Phase 11.5: The Eternal Helmsman Update (Next Course)
 エージェントの「知能」と「規律」を司るプロンプト工場。
 小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
 複雑な差分フォーマットの強制を排除し、
@@ -140,7 +140,6 @@ def build_coder_prompt(
     """
     Coder 向けのプロンプト（完全コード・複数ファイル対応厳格版）。
     """
-    # ターゲットファイルの重複を排除してコンテキストを作成
     unique_targets = list(dict.fromkeys(target_files))
     context = ""
     for target in unique_targets:
@@ -204,7 +203,6 @@ def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_
     unique_targets = list(dict.fromkeys(target_files)) if target_files else ["unknown.py"]
     targets_str = ", ".join(unique_targets)
 
-    # ここで current_source を確実にプロンプトへ組み込みます
     current_code_section = f"## Current Source Code\n{current_source}\n" if current_source else ""
 
     return f"""\
@@ -371,4 +369,51 @@ def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
 Goal: {goal}
 Modified Files: {", ".join(files)}
 Generate a single-line git commit message based on the above. Format: <type>: <description> (English)
+"""
+
+# ---------------------------------------------------------------------------
+# Next Course Proposal Prompt
+# ---------------------------------------------------------------------------
+
+def build_next_course_prompt(
+    original_goal: str,
+    workspace_path: Path,
+    completed_tasks_summary: str,
+    core_rules: str = ""
+) -> str:
+    """
+    フェーズ完了後、Architectに自律的に次のミッションを提案させるプロンプト。
+    """
+    file_tree = get_file_tree(workspace_path)
+    rules_section = f"## 📜 Core Project Rules\n{core_rules}\n" if core_rules else ""
+    
+    # タスクサマリーが空の場合のフォールバック
+    completed_tasks_summary = completed_tasks_summary or "No specific tasks recorded, but initial setup phase completed."
+
+    return f"""\
+You are the Architect Agent. The initial phase of the project has just completed successfully.
+Your role is to analyze the current workspace and the original goal, and autonomously propose the NEXT actionable mission (Next Course).
+
+## Original Ultimate Goal
+{original_goal}
+
+## What Was Just Completed
+{completed_tasks_summary}
+
+## Current Workspace State
+{file_tree}
+
+{rules_section}
+
+## Strict Instructions
+1. Analyze the gap between the "Current Workspace State" and the "Original Ultimate Goal".
+2. Define a single, highly focused NEXT GOAL that logically moves the project forward.
+3. Identify expected artifacts (files to be created or modified) and potential risks.
+4. DO NOT wrap your output in markdown code blocks (e.g., ```yaml or ```). Output raw text.
+5. Output MUST be strictly in the following key-value format.
+
+## Output Format (MANDATORY)
+NEXT_GOAL: <A clear, single-sentence description of the next mission>
+EXPECTED_ARTIFACTS: <file1, file2>
+RISKS: <Identify any potential technical risks or missing dependencies>
 """
