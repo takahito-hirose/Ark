@@ -1,9 +1,10 @@
 """
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-Phase 11.1: Refactoring & The Treasury Delegation Update
-予算管理機構を `src.core.treasury` に委譲し、指揮系統をスリム化。
-UI連携のためのリアルタイムコストブロードキャスト機能を追加。
+Phase 11.4.1: Context Injection Hotfix
+Architectが生成した海図（WBS / SubTask）に基づき、複数のタスクを順次実行。
+Coderのプロンプトでソースコードが二重注入され、SyntaxErrorを引き起こす
+副作用を防止するため、reviewer_feedbackへのソースコード混入を遮断しました。
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ from src.core.dock import Dock
 from src.core.state import ARKState
 from src.core.models import (
     Phase, PlanPayload, CodePayload, ReviewPayload, 
-    ReviewStatus, RunResult, ExecutionAttempt
+    ReviewStatus, RunResult, ExecutionAttempt,
+    SubTask, TaskStatus
 )
 from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
 from src.agents.reflector import ReflectorAgent
@@ -37,7 +39,7 @@ from src.core.agents import build_commit_msg_prompt
 from src.core.dock_manager import setup_dock
 from src.core.github_publisher import publish_to_github
 from src.core.command_interceptor import handle_special_commands
-from src.core.treasury import Treasury  # 会計モジュール
+from src.core.treasury import Treasury
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +53,7 @@ MAX_RETRIES: Final[int] = 3
 class CircuitBreakerTripped(RuntimeError): pass
 
 class StatusCallback(Protocol):
-    def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: ...
+    def __call__(self, phase: Phase, status: str, retry_count: int, detail: str = "") -> None: pass
 
 class Orchestrator:
     """方舟の全行程を統制する、絶対的な指揮官。"""
@@ -62,7 +64,7 @@ class Orchestrator:
         workspace_path: str | Path | None = None,
         on_status_change: StatusCallback | None = None,
         on_token_usage: Callable[[int], None] | None = None,
-        on_cost_update: Callable[[dict], None] | None = None,  # 🌟 NEW: UI同期用コールバック
+        on_cost_update: Callable[[dict], None] | None = None,
         auto_approve_search: bool = False,
         config_overrides: dict[str, str] | None = None
     ) -> None:
@@ -83,12 +85,11 @@ class Orchestrator:
         self._memory = MemoryManager(base_dir=self._memory_dir)
         memory_tools.inject_memory_manager(self._memory)
 
-        # 会計システム（Treasury）の初期化
         self._treasury = Treasury(memory_dir=self._memory_dir, config=self._cfg)
 
         self.on_status_change = on_status_change
         self.on_token_usage = on_token_usage
-        self.on_cost_update = on_cost_update  # 🌟 NEW: コールバックを保持
+        self.on_cost_update = on_cost_update
         
         self._state = ARKState(self._base_workspace)
         if self.on_status_change:
@@ -98,7 +99,6 @@ class Orchestrator:
         self.auto_approve_search = auto_approve_search
         log.info(f"⚙️ System Initialized / Auto Approve Search: {'ON' if self.auto_approve_search else 'OFF'}")
 
-        # 各エージェントの初期化
         self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
         self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
@@ -109,9 +109,7 @@ class Orchestrator:
         self.dock: Dock | None = None 
 
     def _broadcast_cost(self) -> None:
-        """🌟 NEW: 現在の累積コストを上位レイヤー（UI）へ送信する"""
         if self.on_cost_update:
-            # 💡 修正箇所: agent_names を追加してリッチなペイロードを要求する
             payload = self._treasury.get_realtime_usage_payload(self._agents, self._agent_names)
             self.on_cost_update(payload)
 
@@ -130,7 +128,6 @@ class Orchestrator:
         if handle_special_commands(goal, self._memory, self._update_phase, reflector=self._reflector):
             return self._base_workspace
         
-        # RAGコンテキスト注入
         self._update_phase(Phase.PLANNING, "RAG", "大図書館から過去の航海記録を検索中...")
         core_rules = self._memory.load_core_rules_prompt()
         past_memories = self._memory.recall_memory(goal, n_results=3)
@@ -141,11 +138,10 @@ class Orchestrator:
             context_injection += f"{past_memories}\n"
         if context_injection:
             goal = f"{goal}\n\n{context_injection}"
-            log.info("📚 [RAG] 過去の掟と知見をミッションプランに注入しました！")
+            log.info("📚 [RAG] 過去の掟と知見をミッションプランに注入しました")
 
-        # 実行前のSoft Cap（予算警告）チェック
         self._treasury.check_soft_cap(self._agents, Phase.PLANNING, self._update_phase)
-        self._broadcast_cost()  # 🌟 コスト送信
+        self._broadcast_cost()
 
         log.info("=" * 60)
         log.info("  ARK Autonomous Loop (Grand Finale)")
@@ -153,10 +149,9 @@ class Orchestrator:
         log.info("=" * 60)
 
         try:
-            # 1. Planning Phase
             self._update_phase(Phase.PLANNING, "START", "Drafting mission blueprint...")
             plan = self._phase_plan(goal)
-            self._broadcast_cost()  # 🌟 Planning後のコスト送信
+            self._broadcast_cost()
 
             goal_files = re.findall(r'(\w+\.py)', goal)
             if goal_files: 
@@ -167,87 +162,134 @@ class Orchestrator:
                 for agent in self._agents: 
                     agent._workspace_path = self.dock.path
 
-            code_result: CodePayload | None = None
-            last_review: ReviewPayload | None = None
-            execution_feedback: str = ""
-            reviewer_feedback: str = ""
+            if not getattr(plan, 'tasks', None):
+                fallback_task = SubTask(id="task-0", title="Single Pass Mode", description=plan.goal)
+                plan.tasks = [fallback_task]
+
+            all_modified_files = set()
+            last_code_result: CodePayload | None = None
             attempt_history: list[ExecutionAttempt] = []
+            task_artifacts: dict[str, list[str]] = {}
 
-            # 2. Iterative Coding & Review Phase
-            while self._state.retry_count < MAX_RETRIES:
-                retry = self._state.retry_count
-                self._update_phase(Phase.CODING, "START", f"Surgical Implementation (Attempt {retry+1})")
-                
-                current_source = ""
-                if plan.target_files and self.dock:
-                    target_file = self.dock.path / plan.target_files[0]
-                    if target_file.exists(): 
-                        current_source = target_file.read_text(encoding="utf-8")
+            for task_idx, current_task in enumerate(plan.tasks):
+                current_task.status = TaskStatus.IN_PROGRESS
+                task_log_prefix = f"[{current_task.id}] {current_task.title}"
+                log.info(f"⚓️ [Orchestrator] Starting SubTask {task_idx+1}/{len(plan.tasks)}: {task_log_prefix}")
 
-                prompt_aug = f"\n\n### Current SOURCE of {plan.target_files[0]}:\n```python\n{current_source}\n```" if current_source else ""
-                
-                if execution_feedback:
-                    code_result = self._coder.remediate(plan, retry, failure_reason="Execution Error", stacktrace=execution_feedback, current_source=current_source, attempt_history=attempt_history)
-                else:
-                    code_result = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback + prompt_aug)
+                original_goal = plan.goal
+                plan.goal = f"【Overall Goal】\n{original_goal}\n\n【Current Task: {current_task.title}】\n{current_task.description}"
 
-                # コーディング後の予算チェックとコスト送信
-                self._treasury.check_soft_cap(self._agents, Phase.CODING, self._update_phase)
-                self._broadcast_cost()  # 🌟 Coding後のコスト送信
+                self._state.retry_count = 0
+                code_result: CodePayload | None = None
+                last_review: ReviewPayload | None = None
+                execution_feedback: str = ""
+                reviewer_feedback: str = ""
+                task_success = False
 
-                self._state.push_event(Phase.CODING, "RUNNING", "Validating artifacts...")
-                self._state.save()
-                
-                run_result = self._phase_run(code_result)
-                if not run_result.success:
+                while self._state.retry_count < MAX_RETRIES:
+                    retry = self._state.retry_count
+                    self._update_phase(Phase.CODING, "START", f"{task_log_prefix} (Attempt {retry+1})")
+                    
+                    accumulated_context = ""
+                    if self.dock and current_task.dependencies:
+                        files_to_inject = set()
+                        for dep_id in current_task.dependencies:
+                            if dep_id in task_artifacts:
+                                files_to_inject.update(task_artifacts[dep_id])
+                        
+                        if files_to_inject:
+                            accumulated_context += "\n\n【📝 Context from Required Prerequisite Tasks】\n"
+                            for dep_file in files_to_inject:
+                                target_path = self.dock.path / Path(dep_file).name
+                                if target_path.exists():
+                                    content = target_path.read_text(encoding="utf-8")
+                                    accumulated_context += f"### Prerequisite File: {Path(dep_file).name}\n```python\n{content}\n```\n"
+
+                    # 複数ファイルの現在のコードを取得 (remediate用)
+                    current_source = ""
+                    if plan.target_files and self.dock:
+                        unique_targets = list(dict.fromkeys(plan.target_files))
+                        for target in unique_targets:
+                            target_file = self.dock.path / target
+                            if target_file.exists():
+                                content = target_file.read_text(encoding="utf-8")
+                                current_source += f"### File: {target}\n```python\n{content}\n```\n\n"
+
+                    # ⚠️修正箇所: reviewer_feedback 用には dependencies のコンテキストだけ残し、
+                    # current_source が二重注入されるのを防ぎます！
+                    prompt_aug = accumulated_context
+                    
+                    if execution_feedback:
+                        code_result = self._coder.remediate(plan, retry, failure_reason="Execution Error", stacktrace=execution_feedback, current_source=current_source, attempt_history=attempt_history)
+                    else:
+                        code_result = self._coder.code(plan, retry, reviewer_feedback=reviewer_feedback + prompt_aug)
+
+                    self._treasury.check_soft_cap(self._agents, Phase.CODING, self._update_phase)
+                    self._broadcast_cost()
+
+                    self._state.push_event(Phase.CODING, "RUNNING", f"Validating artifacts for {current_task.id}...")
+                    self._state.save()
+                    
+                    run_result = self._phase_run(code_result)
+                    if not run_result.success:
+                        self._state.retry_count += 1
+                        err_msg = run_result.stderr if run_result.stderr else run_result.stdout
+                        self._state.push_event(Phase.CODING, "FAIL", f"Fail: {err_msg[:80]}...")
+                        self._state.save()
+                        if code_result and code_result.files:
+                            attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=err_msg, attempt_number=self._state.retry_count))
+                        execution_feedback = err_msg
+                        continue
+                    
+                    execution_feedback = ""
+
+                    self._update_phase(Phase.REVIEWING, "START", f"Auditing {current_task.id}...")
+                    review = self._phase_review(code_result, retry, plan)
+                    last_review = review
+                    
+                    self._treasury.check_soft_cap(self._agents, Phase.REVIEWING, self._update_phase)
+                    self._broadcast_cost()
+
+                    if review.status == ReviewStatus.PASS:
+                        self._state.push_event(Phase.REVIEWING, "PASS", f"Task {current_task.id} Perfect!")
+                        self._state.save()
+                        task_success = True
+                        if code_result and code_result.files:
+                            task_modified = [f.path for f in code_result.files]
+                            task_artifacts[current_task.id] = task_modified
+                            all_modified_files.update(task_modified)
+                        last_code_result = code_result
+                        break
+
+                    reviewer_feedback = review.summary
                     self._state.retry_count += 1
-                    err_msg = run_result.stderr if run_result.stderr else run_result.stdout
-                    self._state.push_event(Phase.CODING, "FAIL", f"Fail: {err_msg[:80]}...")
                     self._state.save()
-                    if code_result and code_result.files:
-                        attempt_history.append(ExecutionAttempt(code=code_result.files[0].content, error=err_msg, attempt_number=self._state.retry_count))
-                    execution_feedback = err_msg
-                    continue
-                
-                execution_feedback = ""
 
-                self._update_phase(Phase.REVIEWING, "START", "Auditing results...")
-                review = self._phase_review(code_result, retry, plan)
-                last_review = review
-                
-                # レビュー後の予算チェックとコスト送信
-                self._treasury.check_soft_cap(self._agents, Phase.REVIEWING, self._update_phase)
-                self._broadcast_cost()  # 🌟 Review後のコスト送信
+                plan.goal = original_goal
 
-                if review.status == ReviewStatus.PASS:
-                    self._state.push_event(Phase.REVIEWING, "PASS", "Perfect!")
+                if not task_success:
+                    current_task.status = TaskStatus.FAILED
+                    self._state.transition(Phase.BLOCKED)
                     self._state.save()
-                    break
+                    log.warning(f"⚠️ [Orchestrator] 致命的な敗北を確認 ({current_task.id})。原因分析を司書に委譲します...")
+                    self._state.push_event(Phase.BLOCKED, "REFLECT", f"Archiving fatal failure in {current_task.id}...")
+                    self._state.save()
+                    
+                    failed_code = code_result if code_result else CodePayload(files=[])
+                    self._reflector.reflect(plan, failed_code, attempt_history=attempt_history, is_failure=True)
+                    
+                    self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
+                    self._broadcast_cost()
+                    raise CircuitBreakerTripped(f"Surgery could not be stabilized in {current_task.id}. Circuit breaker tripped.")
 
-                reviewer_feedback = review.summary
-                self._state.retry_count += 1
-                self._state.save()
+                current_task.status = TaskStatus.COMPLETED
+                log.info(f"✅ [Orchestrator] Task [{current_task.id}] Completed successfully!")
 
-            # 3. Circuit Breaker (Failed after MAX_RETRIES)
-            if self._state.retry_count >= MAX_RETRIES and (not last_review or last_review.status != ReviewStatus.PASS):
-                self._state.transition(Phase.BLOCKED)
-                self._state.save()
-                log.warning("⚠️ [Orchestrator] 致命的な敗北を確認。原因分析を司書に委譲します...")
-                self._state.push_event(Phase.BLOCKED, "REFLECT", "Archiving fatal failure...")
-                self._state.save()
-                
-                failed_code = code_result if code_result else CodePayload(files=[])
-                self._reflector.reflect(plan, failed_code, attempt_history=attempt_history, is_failure=True)
-                
-                # 失敗時も会計報告とコスト送信を実施
-                self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
-                self._broadcast_cost()  # 🌟 エラー終了時のコスト送信
-                raise CircuitBreakerTripped("Surgery could not be stabilized. Circuit breaker tripped.")
-
-            # 4. Committing Phase
-            self._update_phase(Phase.COMMITTING, "START", "Finalizing sync...")
-            assert code_result is not None
-            self._phase_commit(code_result, plan.goal)
+            self._update_phase(Phase.COMMITTING, "START", "Finalizing sync for all tasks...")
+            
+            modified_files_list = list(all_modified_files)
+            if modified_files_list:
+                self._phase_commit(modified_files_list, plan.goal)
 
             is_new_project = not self.is_url and not (self.dock.path.exists() and (self.dock.path / ".git").exists())
             pr_url = publish_to_github(self.dock, self._state.task_id, plan.goal, is_new_project, self.is_url)
@@ -257,20 +299,21 @@ class Orchestrator:
 
             self._state.push_event(Phase.COMMITTING, "REFLECT", "Knowledge archiving...")
             self._state.save()
-            self._reflector.reflect(plan, code_result, attempt_history=attempt_history, is_failure=False)
+            
+            if last_code_result:
+                self._reflector.reflect(plan, last_code_result, attempt_history=attempt_history, is_failure=False)
 
-            # ミッション完了時の最終会計報告とコスト送信
             self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
-            self._broadcast_cost()  # 🌟 ミッション完了時のコスト送信
+            self._broadcast_cost()
 
-            self._update_phase(Phase.DONE, "FINISH", "Mission successful. Probe ship docked. ⚓️")
+            self._update_phase(Phase.DONE, "FINISH", "Mission successful. All tasks completed. ⚓️")
             return self.dock.path if self.dock else Path(".")
 
         except Exception as e:
             log.error(traceback.format_exc())
             self._state.transition(Phase.DONE)
             self._state.save()
-            self._broadcast_cost()  # 🌟 例外発生時も念のためコストを送信
+            self._broadcast_cost()
             raise e
 
     def _update_phase(self, phase: Phase, status: str, detail: str):
@@ -294,27 +337,46 @@ class Orchestrator:
         python_cmd = ".venv/bin/python" if os.name != "nt" else ".venv\\Scripts\\python.exe"
         pip_cmd = ".venv/bin/pip" if os.name != "nt" else ".venv\\Scripts\\pip.exe"
 
+        # 1. 依存関係のインストール (requirements.txt があれば)
         if req_file or (self.dock.path / "requirements.txt").exists():
             self.dock.terminal.execute_command(f"{pip_cmd} install -r requirements.txt")
 
-        main_file = next((f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")), None)
-        if not main_file: return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
+        # 2. テストファイルが存在するかチェック
+        test_files = [f.path for f in code.files if f.path.startswith("test_") or f.path.endswith("_test.py")]
+        has_existing_tests = len(list(self.dock.path.glob("test_*.py"))) > 0
         
-        result = self.dock.terminal.execute_command(f"{python_cmd} {main_file}")
-        return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+        if test_files or has_existing_tests:
+            # テストがあるなら無条件で pytest をインストールして実行するよ！
+            self.dock.terminal.execute_command(f"{pip_cmd} install pytest")
+            # pytestコマンドを直接叩くのではなく、python -m pytest でモジュールとして実行すると環境パス問題が起きにくい
+            result = self.dock.terminal.execute_command(f"{python_cmd} -m pytest -v")
+            return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+
+        # 3. テストがない場合、CLIツールなどを引数なしで実行してコケるのを防ぐため、構文チェックのみ実施
+        main_files = [f.path for f in code.files if f.path.endswith(".py") and not f.path.startswith("test_")]
+        if not main_files: 
+            return RunResult(exit_code=0, stdout="Validated", stderr="", duration=0)
+        
+        for main_file in main_files:
+            # -m py_compile で実行せずに文法チェックだけ通す
+            result = self.dock.terminal.execute_command(f"{python_cmd} -m py_compile {main_file}")
+            if result.exit_code != 0:
+                return RunResult(exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr, duration=0)
+                
+        return RunResult(exit_code=0, stdout="Syntax check passed. (Waiting for unit tests for full validation)", stderr="", duration=0)
     
     def _phase_review(self, code: CodePayload, retry: int, plan: PlanPayload) -> ReviewPayload:
         return self._reviewer.review(code, retry, plan=plan)
 
-    def _phase_commit(self, code: CodePayload, goal: str) -> list[Path]:
+    def _phase_commit(self, modified_files: list[str], goal: str) -> list[Path]:
         if not self.dock: return []
         try:
-            prompt = build_commit_msg_prompt(goal, [f.path for f in code.files])
+            prompt = build_commit_msg_prompt(goal, modified_files)
             raw_msg = self._coder._call_llm(prompt).strip()
             msg = raw_msg.replace("```plaintext", "").replace("```", "").strip().split("\n")[0]
             self.dock.terminal.execute_command("git add .")
             self.dock.terminal.execute_command(f"git commit -m {shlex.quote(msg)}")
-            return [self.dock.path / Path(f.path).name for f in code.files]
+            return [self.dock.path / Path(f).name for f in modified_files]
         except Exception as e:
             log.warning("Commit failed: %s", e)
             return []

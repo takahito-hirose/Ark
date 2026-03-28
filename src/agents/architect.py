@@ -1,13 +1,14 @@
 """
 ARK — Architect Agent (SYLPH)
 ==============================
+Phase 11: The Eternal Helmsman Update
 設計フェーズを担当するエージェント。
 外界の知識を覗き込む「望遠鏡（Telescope）」を装備し、
 得られた知見をパーティ全員に共有する「神経系の中枢」よ💋
 
 責務
 ----
-- ユーザーのゴールを分析し、 PlanPayload を生成する。
+- ユーザーのゴールを分析し、 PlanPayload と SubTaskリスト（WBS） を生成する。
 - 既存プロジェクトのコンテキスト収集に加え、未知の技術に対する自律的な Web リサーチを行う。
 - 獲得した最新の知見（search_results）を Payload に格納し、全エージェントに同期する。💋
 """
@@ -21,9 +22,10 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
 from src.core.agents import build_architect_prompt, get_file_tree
-from src.core.models import PlanPayload
+# 🌟 NEW: SubTask をインポートに追加！
+from src.core.models import PlanPayload, SubTask, TaskStatus
 from src.tools.ast_analyzer import generate_code_outline
-from src.tools.telescope import WebTelescope  # 🌟 望遠鏡ツールをインポート！
+from src.tools.telescope import WebTelescope
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
@@ -42,7 +44,7 @@ class ArchitectAgent(BaseAgent):
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
         on_token_usage: Optional[Callable[[int], None]] = None,
-        use_mock_telescope: bool = False  # 🌟 お財布防衛用フラグ
+        use_mock_telescope: bool = False
     ) -> None:
         super().__init__(
             provider, 
@@ -50,7 +52,6 @@ class ArchitectAgent(BaseAgent):
             workspace_path=workspace_path,
             on_token_usage=on_token_usage
         )
-        # 望遠鏡を装備！
         self.telescope = WebTelescope(mock_mode=use_mock_telescope)
 
     # ------------------------------------------------------------------
@@ -58,7 +59,7 @@ class ArchitectAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def plan(self, goal: str, task_id: str) -> PlanPayload:
-        """ゴールを分析し PlanPayload を生成する。"""
+        """ゴールを分析し PlanPayload と SubTaskリスト を生成する。"""
         log.info("[Architect] Gathering context and analysing goal: %r", goal[:60])
         
         # 1. ワークスペースの構造（ファイルツリー）を取得
@@ -71,11 +72,11 @@ class ArchitectAgent(BaseAgent):
             log.info("🔍 [Architect] 既存プロジェクトを検知。内部コンテキスト探索を開始します...")
             gathered_context += self._investigate_project(goal, tree)
         
-        # 3. 🌟 望遠鏡による外界リサーチ (Telescope Calibration)
+        # 3. 望遠鏡による外界リサーチ (Telescope Calibration)
         log.info("🔭 [Architect] 未知の技術が必要か判断し、必要なら外界をリサーチします...")
         external_knowledge = self._research_external_knowledge(goal)
         
-        # 4. ゴールにコンテキストを注入（外部知識があればそれもプロンプトに含める）
+        # 4. ゴールにコンテキストを注入
         enhanced_goal = goal
         if gathered_context:
             enhanced_goal += f"\n\n{gathered_context}\n"
@@ -86,7 +87,7 @@ class ArchitectAgent(BaseAgent):
         prompt = build_architect_prompt(enhanced_goal, self._workspace_path, blueprints=blueprints)
         response = self._call_llm(prompt)
         
-        # 6. レスポンスをパースしてPayloadを作成。検索結果もしっかり詰め込むわよ！💋
+        # 6. レスポンスをパースしてPayloadを作成
         return self._parse_response(
             response, 
             goal=goal, 
@@ -99,7 +100,6 @@ class ArchitectAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _research_external_knowledge(self, goal: str) -> str:
-        """LLMにゴールを見せ、検索が必要か判断させてリサーチを実行する。"""
         research_prompt = (
             "あなたはARKのArchitectです。\n"
             "以下のゴールを達成するために、あなたが知らない最新のライブラリや技術スタックの使い方が必要ですか？\n\n"
@@ -119,14 +119,11 @@ class ArchitectAgent(BaseAgent):
             query = match.group(1).strip()
             if query.upper() != "NONE":
                 log.info(f"🔭 [Architect] 望遠鏡を起動します。検索クエリ: {query}")
-                # 🌟 Telescope を使って外界の知識を引っ張ってくる！
-                research_result = self.telescope.research(query)
-                return research_result
+                return self.telescope.research(query)
                 
         return ""
 
     def _scan_blueprints(self) -> str:
-        """ワークスペース内の主要なPythonファイルのASTアウトラインを一括抽出する"""
         if not self._workspace_path or not self._workspace_path.exists():
             return ""
             
@@ -153,7 +150,6 @@ class ArchitectAgent(BaseAgent):
         return "\n\n".join(outlines)
 
     def _investigate_project(self, goal: str, tree: str) -> str:
-        """既存プロジェクトの関連ファイルを特定して読み込む。"""
         investigation_prompt = (
             "あなたはARKのArchitectです。\n"
             "既存のプロジェクトを改修するために、事前にどのファイルの中身を確認すべきか判断してください。\n\n"
@@ -219,17 +215,60 @@ class ArchitectAgent(BaseAgent):
             else:
                 target_files = [f"output_{task_id[:8]}.py"]
 
-        # 🌟 ここが同期のポイント！獲得した search_results を Payload に詰め込むのよ💋
+        # 🌟 NEW: サブタスク（海図）をパースして取り出す！
+        tasks = self._parse_tasks(response)
+        
+        if tasks:
+            log.info("🗺️ [Architect] Generated %d sub-tasks for the plan.", len(tasks))
+        else:
+            log.warning("⚠️ [Architect] No valid tasks found. Orchestrator might fall back to single-pass mode.")
+
         payload = PlanPayload(
             goal=goal,
             spec_path="specs/core_logic.md",
             target_files=target_files,
             constraints=constraints,
             acceptance_criteria=acceptance,
-            search_results=search_results  # これで Coder たちに知識が届くわ！
+            search_results=search_results,
+            tasks=tasks  # 🌟 ここにタスクリストをセット！
         )
-        log.info("[Architect] PlanPayload created: target_files=%s", payload.target_files)
         return payload
+
+    def _parse_tasks(self, response: str) -> list[SubTask]:
+        """レスポンス内の TASKS: セクションから SubTask のリストを抽出する"""
+        tasks = []
+        # TASKS: という文字以降をごっそり取得
+        tasks_match = re.search(r'TASKS:\s*(.*?)(?:\n\n|\Z)', response, re.DOTALL | re.IGNORECASE)
+        if not tasks_match:
+            return tasks
+            
+        lines = tasks_match.group(1).strip().split('\n')
+        for line in lines:
+            if not line.strip().startswith('-'):
+                continue
+                
+            # 例: - ID: task-1 | TITLE: Setup | DESC: ... | DEPENDS: task-0
+            parts = [p.strip() for p in line.strip('- ').split('|')]
+            task_dict = {}
+            for part in parts:
+                if ':' in part:
+                    k, v = part.split(':', 1)
+                    task_dict[k.strip().upper()] = v.strip()
+                    
+            if 'ID' in task_dict and 'TITLE' in task_dict and 'DESC' in task_dict:
+                deps = []
+                # 依存関係が書かれている場合だけパースする
+                if 'DEPENDS' in task_dict and task_dict['DEPENDS'].lower() not in ['', 'none']:
+                    deps = [d.strip() for d in task_dict['DEPENDS'].split(',')]
+                    
+                tasks.append(SubTask(
+                    id=task_dict['ID'],
+                    title=task_dict['TITLE'],
+                    description=task_dict['DESC'],
+                    dependencies=deps
+                ))
+                
+        return tasks
 
     @staticmethod
     def _extract_list(text: str, key: str, default: list[str] | None = None) -> list[str]:

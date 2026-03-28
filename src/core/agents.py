@@ -1,20 +1,17 @@
 """
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
+Phase 11.4: Remediation Context Fix
 エージェントの「知能」と「規律」を司るプロンプト工場。
 小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
-複雑な差分フォーマット(SEARCH/REPLACE)の強制を排除し、
-常に「完全なコード」を出力させる厳格なシステムプロンプトとして最適化しました💋
-
-※各関数のDocstring（関数直下のコメント）に、
-  生成される英語プロンプトの「日本語での意訳・狙い」を詳細に記載しています。
+複雑な差分フォーマットの強制を排除し、
+複数ファイルであっても「完全なコード」を確実に出力させる厳格なプロンプトです。
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 from src.core.tools import read_file
 
@@ -87,19 +84,6 @@ def build_architect_prompt(
 ) -> str:
     """
     Architect 向けのプロンプトを構築します。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 既存のワークスペースと「過去の記憶」に基づいて修正計画を立てるアーキテクト（設計者）。
-    ルール:
-    1. TARGET_FILES にはファイル名のみを出力すること（パス名を含めない）。
-    2. 新規作成よりも既存ファイルの修正を優先すること。
-    3. [重要] 過去の失敗(Anti-Patterns)がある場合は、絶対に同じ轍を踏まないよう計画(CONSTRAINTS)に反映させること。
-    
-    出力フォーマット:
-    TARGET_FILES: <ファイル名1>, <ファイル名2>
-    CONSTRAINTS: <制約事項1>, <制約事項2>
-    ACCEPTANCE: <成功の定義>
-    ※空プロジェクトの場合は「適切なファイル名を決めて」とヒントを出します。
     """
     file_tree = get_file_tree(workspace_path)
     
@@ -113,6 +97,7 @@ def build_architect_prompt(
 
     return f"""\
 You are the Architect Agent. Your role is to plan the necessary modifications to achieve the user's goal based on the existing workspace.
+Break down the goal into a sequence of actionable SUBTASKS.
 {new_project_hint}
 ## Workspace State
 {file_tree}
@@ -123,14 +108,18 @@ You are the Architect Agent. Your role is to plan the necessary modifications to
 {goal}
 
 ## Strict Rules
-1. Only output file names in TARGET_FILES (e.g., `main.py`, not `workspace/main.py`).
-2. Prioritize modifying existing files over creating new ones if applicable.
-3. If Past Experiences or Avoidance Rules exist, formulate constraints to explicitly avoid known failures.
+1. Break down the entire goal into logical, sequential tasks (Work Breakdown Structure).
+2. Only output file names in TARGET_FILES (e.g., `main.py`, not `workspace/main.py`).
+3. Prioritize modifying existing files over creating new ones if applicable.
+4. If Past Experiences or Avoidance Rules exist, formulate constraints to explicitly avoid known failures.
 
 ## Output Format (Strictly follow this structure)
 TARGET_FILES: <file1>, <file2>
 CONSTRAINTS: <constraint1>, <constraint2>
 ACCEPTANCE: <acceptance criteria>
+TASKS:
+- ID: task-1 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: <none or task_id>
+- ID: task-2 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: task-1
 """
 
 # ---------------------------------------------------------------------------
@@ -149,22 +138,12 @@ def build_coder_prompt(
     core_rules: str = ""
 ) -> str:
     """
-    Coder 向けのプロンプト（完全コード出力版）。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 指示通りに正確にコードを修正するコーダー。
-    ★重要変更★ 差分(SEARCH/REPLACE)形式での出力をやめさせ、**常にファイルの完全なコード(Full Code)** を出力させます。
-    ルール:
-    1. 完全出力: コードの一部を省略したりせず、ファイル全体のコードを出力すること。
-    2. マーカー禁止: Gitのコンフリクトマーカー（<<<<<<<など）や差分表現は絶対に使わないこと。
-    3. 無駄話禁止: コードブロックだけを出力し、会話文や解説を一切書かないこと。
-    特記事項: 
-    - 検索結果(search_results)がある場合は、それを最優先の知識として実装に反映させる。
-    - 全体ルール(core_rules)がある場合は、命名規則などに従う。
-    - 以前失敗した場合は reviewer_feedback が渡され、同じミスを防ぐ。
+    Coder 向けのプロンプト（完全コード・複数ファイル対応厳格版）。
     """
+    # ターゲットファイルの重複を排除してコンテキストを作成
+    unique_targets = list(dict.fromkeys(target_files))
     context = ""
-    for target in target_files:
+    for target in unique_targets:
         clean_target = Path(target).name
         content = read_file(clean_target, workspace_path)
         
@@ -186,18 +165,20 @@ You are the Coder Agent. Your task is to implement the goal by outputting the FU
 ## Strict Rules for Code Generation
 1. FULL FILE CONTENT: You MUST output the entire, complete code for the file. Do not truncate or omit any parts of the code.
 2. NO DIFF MARKERS: NEVER use git conflict markers or diff blocks (e.g., `<<<<<<<`, `=======`, `>>>>>>>`).
-3. NO EXPLANATIONS: Provide ONLY the code blocks. Do not add conversational text or markdown explanations outside the code block.
+3. NO EXPLANATIONS: Provide ONLY the code blocks formatted exactly as shown below. Do NOT add ANY conversational text, introductions, or markdown explanations outside the code block.
+4. MULTIPLE FILES: If you need to create or modify multiple files, repeat the EXACT `FILE: ...` and code block format for EACH file consecutively.
 
-## Example Format
-FILE: main.py
-```python
-import os
+## Output Format (MANDATORY)
+For EVERY file you need to create or modify, use this EXACT structure. Do not output anything else.
 
-def main():
-    print("Complete file code goes here")
+FILE: <filename>
+```<language>
+<Full complete code for the file>
+```
 
-if __name__ == "__main__":
-    main()
+FILE: <another_filename>
+```<language>
+<Full complete code for the file>
 ```
 
 ## Task Details
@@ -209,7 +190,7 @@ CONSTRAINTS: {constraints_text}
 
 Attempt: {retry}
 {feedback_section}
-Output the complete, fully updated code now.
+Output the complete, fully updated code now, adhering strictly to the Output Format.
 """
 
 # ---------------------------------------------------------------------------
@@ -218,19 +199,19 @@ Output the complete, fully updated code now.
 
 def build_remediation_prompt(goal, target_files, retry, workspace_path, failure_reason, stacktrace, current_source, attempt_history=None) -> str:
     """
-    エラー発生時の自己修復用プロンプト（完全コード出力版）。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 実行時エラーを修正する緊急コーダー。
-    指示内容: 前回の実行で発生したエラー理由とスタックトレースを読み込み、
-             原因を修正した **正しい完全なコード** を出力し直すこと。
-             会話文は一切不要。Diffマーカーも使用禁止。
+    エラー発生時の自己修復用プロンプト（完全コード・複数ファイル対応厳格版）。
     """
-    target_file = Path(target_files[0]).name if target_files else "unknown.py"
+    unique_targets = list(dict.fromkeys(target_files)) if target_files else ["unknown.py"]
+    targets_str = ", ".join(unique_targets)
+
+    # ここで current_source を確実にプロンプトへ組み込みます
+    current_code_section = f"## Current Source Code\n{current_source}\n" if current_source else ""
+
     return f"""\
 You are the Coder Agent. The previous execution resulted in an error. Please fix the issue.
 
 GOAL: {goal}
+TARGET FILES: {targets_str}
 
 [ERROR REASON]
 {failure_reason}
@@ -238,14 +219,16 @@ GOAL: {goal}
 [STACKTRACE]
 {stacktrace}
 
+{current_code_section}
 ## Instructions
-Fix the error and output the ENTIRE corrected code.
-DO NOT use diff markers (e.g., `<<<<<<<`, `>>>>>>>`). Output the full file content.
-Do not include any conversational text.
+Fix the error and output the ENTIRE corrected code for all affected files.
+1. DO NOT use diff markers. Output the full file content.
+2. DO NOT include any conversational text, explanations, or notes. Output ONLY the files and code blocks.
+3. If multiple files need fixing, output each one consecutively using the exact format.
 
-## Output Format
-FILE: {target_file}
-```python
+## Output Format (MANDATORY)
+FILE: <filename>
+```<language>
 <Entire Corrected Code Here>
 ```
 """
@@ -263,20 +246,6 @@ def build_reviewer_prompt(
 ) -> str:
     """
     Reviewer 向けのプロンプトを構築。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 提出されたコードを評価し、PASS/FAILを判定するレビュアー。
-    評価基準:
-    1. ユーザーの目的(Goal)を達成しているか。
-    2. 受け入れ基準(Acceptance Criteria)を満たしているか。
-    3. ★重要変更★ コードの完全性(Code Integrity)。<<<<<<< などのGitコンフリクトマーカーや、
-       シンタックスエラーを起こすようなゴミがコードに混入していないかを確認する。
-    4. (検索結果がある場合) 最新のリサーチ情報が正しく反映されているか。
-    出力フォーマット:
-    VERDICT: PASS or FAIL
-    SCORE: <0.0〜1.0>
-    SUMMARY: <1行の要約>
-    ISSUES: <深刻度>|<ファイル>|<行>|<メッセージ> （あれば）
     """
     search_hint = f"\n## Research Criteria\nEnsure the following information is reflected correctly:\n{search_results}" if search_results else ""
 
@@ -313,19 +282,6 @@ def build_reflector_prompt(
 ) -> str:
     """
     Reflector 向けのプロンプト（記憶抽出用）。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 今回のミッションから得られた知見を大図書館(ChromaDB)に保存する司書。
-    抽出対象:
-    - 実装の工夫、エラーの解決策、アーキテクチャの決定事項。
-    - プロジェクト特有のルール。
-    - 検索で得られた新仕様。
-    - 試行錯誤の履歴(attempt_history)から「失敗パターン」と「成功コード」。
-    - 🚨 (is_failure=True時) 致命的な失敗の原因を徹底分析し、二度と同じミスを繰り返さないための「地雷マップ(Avoidance Rules)」を作成する！
-    ルール:
-    必ず指定の TOOL_CALL 形式（1行に1つ）で出力すること。
-    [フォーマット1: 全体ルール保存] TOOL_CALL: save_core_rule | <ルール名> | <詳細>
-    [フォーマット2: 経験の保存] TOOL_CALL: archive_experience | [Failure Pattern] <エラー原因> -> [Success Snippet/Avoidance] <解決策・回避策>
     """
     search_hint = f"\n## New Insights (Research Data)\n{search_results}\nArchive any new specifications or differences found." if search_results else ""
     history_hint = f"\n## Trial & Error History\n{attempt_history_str}\nAnalyze this history to extract 'Failure Patterns' and their 'Success Snippets'." if attempt_history_str else ""
@@ -373,14 +329,6 @@ Modified Files: {", ".join(files)}
 def build_gc_prompt(current_memory_dump: str) -> str:
     """
     Reflector 向けの記憶整理（ガベージコレクション）用プロンプト。
-    
-    【日本語の意訳・指示の狙い】
-    役割: 定期的に記憶データベースの重複・矛盾を整理する司書。
-    ルール:
-    1. 似たようなルールや経験を統合(Deduplication)する。
-    2. 古い情報と新しい情報で矛盾があれば、最新または汎用的な方を残す。
-    3. 無意味なプレースホルダーデータ（例："rule_name"）は削除する。
-    4. Markdownの装飾(```json)を含めず、純粋でパース可能なJSON文字列のみを出力すること。
     """
     return f"""\
 You are the Reflector Agent managing the knowledge base.
@@ -418,10 +366,6 @@ Analyze the provided "Current Memory Dump" and reconstruct it following these ru
 def build_commit_msg_prompt(goal: str, files: list[str]) -> str:
     """
     Gitコミットメッセージ生成用プロンプト。
-    
-    【日本語の意訳・指示の狙い】
-    指定されたゴールと変更ファイル一覧から、
-    <type>: <description> 形式の英語のコミットメッセージを1行で生成させる。
     """
     return f"""\
 Goal: {goal}

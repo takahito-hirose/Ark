@@ -1,6 +1,7 @@
 """
 ARK Core — Data Models (Payloads & Envelope)
 =============================================
+Phase 11: The Eternal Helmsman Update
 All inter-SYLPH communication is typed via these dataclasses.
 Conforms to: specs/core_logic.md §2
 """
@@ -28,6 +29,13 @@ class Phase(str, Enum):
     COMMITTING = "COMMITTING"
     BLOCKED    = "BLOCKED"
     DONE       = "DONE"
+
+# 🌟 NEW: サブタスクの進捗ステータスを追加！
+class TaskStatus(str, Enum):
+    PENDING     = "PENDING"      # まだ手をつけてない
+    IN_PROGRESS = "IN_PROGRESS"  # 今ウチらが実装中！
+    COMPLETED   = "COMPLETED"    # レビューまでパスした
+    FAILED      = "FAILED"       # どうしても無理だった（要リスケ）
 
 
 @dataclass
@@ -74,17 +82,29 @@ class IssueSeverity(str, Enum):
 # Payload models
 # ---------------------------------------------------------------------------
 
+# 🌟 NEW: 海図の構成要素（WBS）となるサブタスクモデル！
+@dataclass
+class SubTask:
+    """A single actionable step within a larger plan."""
+    id:          str             # タスクの識別子（例: "task-1"）
+    title:       str             # タスクのタイトル
+    description: str             # 具体的に何をするか
+    status:      TaskStatus = TaskStatus.PENDING
+    dependencies: list[str] = field(default_factory=list) # これが終わらないと着手できないタスクID
+
+
 @dataclass
 class PlanPayload:
     """Architect → Coder: what to build."""
     goal:                 str
     spec_path:            str
     target_files:         list[str]
-    # 🌟 FIX: デフォルト値を追加して安全にしつつ、新しいポケットを用意したわ！💋
     constraints:          list[str] = field(default_factory=list)
     acceptance_criteria:  list[str] = field(default_factory=list)
     project_name:         str | None = None
     search_results:       str = ""
+    # 🌟 NEW: Architectが生成したサブタスクのリストを保持するポケット！
+    tasks:                list[SubTask] = field(default_factory=list)
 
 
 @dataclass
