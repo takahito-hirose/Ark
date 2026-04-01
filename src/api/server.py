@@ -1,43 +1,32 @@
 """
-ARK — Bridge Server (The Final Fix)
-=====================================
-Phase 11.2: Treasury WebSocket Integration
-1. モード(ECO/RICH)の概念を完全に撤廃。
-2. UIからの動的なプロバイダー/モデル指定を受け入れ。
-3. 自動承認(auto_approve_search)フラグの導入。
-4. [REFACTOR] ハッキーなコスト計算を削除し、Orchestratorの `on_cost_update` に完全委譲。
+ARK — API Server (The Neural Link)
+==================================
+ARKのオーケストレーターをAPIとして公開し、WebSocket経由で思考プロセスを
+リアルタイムにストリーミング配信する。
+(server.py と仕様を完全に同期：Treasury連携済み)
 """
 
-import sys
 import asyncio
 import logging
+import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Any, List, Optional
 
-from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# パス解決
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-from src.core.orchestrator import Orchestrator
+from src.core.orchestrator import Orchestrator, Phase
 
 load_dotenv()
 
-# --- 🤫 ログを静かにさせる設定 ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
-logging.getLogger("watchfiles").setLevel(logging.WARNING)
-logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
-log = logging.getLogger("ARK.Bridge")
+logger = logging.getLogger("ARK.Bridge")
 
 app = FastAPI(title="ARK Neuro-Link API")
 
@@ -51,19 +40,19 @@ app.add_middleware(
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        log.info("📡 New HUD client connected.")
+        logger.info("📡 New HUD client connected to Neuro-Link.")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            log.info("📡 HUD client disconnected.")
+        logger.info("📡 Client disconnected.")
 
-    async def broadcast(self, message: dict):
+    async def broadcast(self, message: Dict[str, Any]):
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
@@ -81,6 +70,60 @@ class CommandRequest(BaseModel):
     reviewer_provider: Optional[str] = None
     reflector_provider: Optional[str] = None
 
+def create_status_callback(loop: asyncio.AbstractEventLoop):
+    def callback(phase: Phase, status: str, retry_count: int, detail: str = ""):
+        phase_name = phase.value if hasattr(phase, 'value') else phase
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "ARK_EVENT",
+                "phase": phase_name,
+                "status": status,
+                "retry_count": retry_count,
+                "detail": detail,
+                "timestamp": loop.time()
+            }),
+            loop
+        )
+    return callback
+
+def create_token_usage_callback(loop: asyncio.AbstractEventLoop):
+    def callback(tokens_used: int, cost: float = 0.0):
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "TOKEN_USAGE",
+                "tokens": tokens_used,
+                "cost": cost
+            }),
+            loop
+        )
+    return callback
+
+def create_cost_update_callback(loop: asyncio.AbstractEventLoop):
+    """🌟 NEW: Treasuryのコスト情報を横流しするコールバック"""
+    def callback(payload: dict):
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast(payload),
+            loop
+        )
+    return callback
+
+# 🌟 NEW: Orchestratorから提案が上がってきたらHUDに流すコールバック関数！
+def create_proposal_callback(loop: asyncio.AbstractEventLoop):
+    def callback(proposal_data: dict):
+        logger.info(f"💡 Orchestrator generated a proposal! Broadcasting to HUD.")
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "PROPOSAL_READY",
+                "data": proposal_data
+            }),
+            loop
+        )
+    return callback
+
+@app.get("/")
+def read_root():
+    return {"status": "ARK Online", "version": "11.2-link"}
+
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -90,61 +133,28 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-def run_orchestrator_sync(request: CommandRequest, main_loop: asyncio.AbstractEventLoop):
-    """メインスレッドのループを使って報告するわ！💋"""
+async def run_ark_mission(req: CommandRequest):
+    loop = asyncio.get_running_loop()
     
-    def on_status_change(phase, status, retry_count, detail=""):
-        asyncio.run_coroutine_threadsafe(
-            manager.broadcast({
-                "type": "ARK_EVENT",
-                "phase": phase.value if hasattr(phase, 'value') else phase,
-                "status": status,
-                "retry_count": retry_count,
-                "detail": detail
-            }),
-            main_loop
-        )
-
-    def on_token_usage(tokens, cost: float = 0.0):
-        # 🌟 純粋なトークン消費イベント（コスト計算はTreasuryに委譲済み）
-        asyncio.run_coroutine_threadsafe(
-            manager.broadcast({
-                "type": "TOKEN_USAGE",
-                "tokens": tokens,
-                "cost": cost
-            }),
-            main_loop
-        )
-
-    def on_cost_update(payload: dict):
-        # 🌟 NEW: Treasuryからの詳細なコスト情報をUIへ横流しする！
-        asyncio.run_coroutine_threadsafe(
-            manager.broadcast(payload),
-            main_loop
-        )
-
     config_overrides = {}
-    if request.architect_provider: config_overrides["architect_provider"] = request.architect_provider
-    if request.coder_provider: config_overrides["coder_provider"] = request.coder_provider
-    if request.reviewer_provider: config_overrides["reviewer_provider"] = request.reviewer_provider
-    if request.reflector_provider: config_overrides["reflector_provider"] = request.reflector_provider
+    if req.architect_provider: config_overrides["architect_provider"] = req.architect_provider
+    if req.coder_provider: config_overrides["coder_provider"] = req.coder_provider
+    if req.reviewer_provider: config_overrides["reviewer_provider"] = req.reviewer_provider
+    if req.reflector_provider: config_overrides["reflector_provider"] = req.reflector_provider
 
     try:
-        log.info("🚢 Mission Launch: %s", request.command)
         orc = Orchestrator(
-            workspace_path=request.workspace_path,
-            on_status_change=on_status_change,
-            on_token_usage=on_token_usage,
-            on_cost_update=on_cost_update,  # 🌟 コールバックを接続
-            auto_approve_search=request.auto_approve_search,
+            on_status_change=create_status_callback(loop),
+            on_token_usage=create_token_usage_callback(loop),
+            on_cost_update=create_cost_update_callback(loop),
+            on_proposal=create_proposal_callback(loop), # 🌟 ココ！これを渡し忘れてた！
+            workspace_path=req.workspace_path,
+            auto_approve_search=req.auto_approve_search,
             config_overrides=config_overrides
         )
-        
-        orc.run(request.command)
-        log.info("🏁 Mission Accomplished.")
-        
+        await loop.run_in_executor(None, orc.run, req.command)
     except Exception as e:
-        log.error("❌ Orchestrator failed: %s", e)
+        logger.error("❌ Orchestrator failed: %s", e)
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "ARK_EVENT",
@@ -152,5 +162,29 @@ def run_orchestrator_sync(request: CommandRequest, main_loop: asyncio.AbstractEv
                 "status": "CRITICAL_ERROR",
                 "detail": str(e)
             }),
-            main_loop
+            loop
         )
+
+@app.post("/api/command")
+async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks):
+    logger.info("💬 Command Received from HUD: %s", req.command)
+    background_tasks.add_task(run_ark_mission, req=req)
+    return {"message": "Mission accepted", "level": "success"}
+
+# 🌟 NEW: 次なる航路の提案を承認し、ミッションを開始するエンドポイント
+@app.post("/api/command/approve")
+async def approve_proposal(req: CommandRequest, background_tasks: BackgroundTasks):
+    logger.info("✅ Proposal Approved by Captain! Launching new course: %s", req.command)
+    # フロントから送られてきた確定版の goal (req.command) を使ってミッションを開始
+    background_tasks.add_task(run_ark_mission, req=req)
+    return {"message": "Proposal approved and mission launched", "level": "success"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "src.api.main:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        reload_dirs=["src"] 
+    )
