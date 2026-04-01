@@ -65,6 +65,7 @@ class Orchestrator:
         on_status_change: StatusCallback | None = None,
         on_token_usage: Callable[[int], None] | None = None,
         on_cost_update: Callable[[dict], None] | None = None,
+        on_proposal: Callable[[dict], None] | None = None,  # 🌟 NEW: 提案のブロードキャスト用コールバック
         auto_approve_search: bool = False,
         config_overrides: dict[str, str] | None = None
     ) -> None:
@@ -90,6 +91,7 @@ class Orchestrator:
         self.on_status_change = on_status_change
         self.on_token_usage = on_token_usage
         self.on_cost_update = on_cost_update
+        self.on_proposal = on_proposal  # 🌟 NEW: 接続
         
         self._state = ARKState(self._base_workspace)
         if self.on_status_change:
@@ -300,16 +302,13 @@ class Orchestrator:
             if last_code_result:
                 self._reflector.reflect(plan, last_code_result, attempt_history=attempt_history, is_failure=False)
 
-            # 🌟 NEW: Next Course Proposal (次なる航路の提示)
+            # 🌟 NEW: Next Course Proposal (次なる航路の提示) と自律判断
             try:
-                # Phase に PROPOSING が追加されている前提で呼び出すよ！
                 if hasattr(Phase, "PROPOSING"):
                     self._update_phase(Phase.PROPOSING, "START", "Architect is planning the next course...")
                 
-                # 完了したタスクのサマリーを作成
                 completed_tasks_summary = "\n".join([f"- [{t.id}] {t.title}: {t.description}" for t in plan.tasks])
                 
-                # Architectに次の目標を提案させる
                 next_course = self._architect.propose_next_course(original_goal, completed_tasks_summary)
                 
                 log.info(f"🧭 [Orchestrator] Next Course Proposal Ready!")
@@ -321,8 +320,19 @@ class Orchestrator:
                     self._state.push_event(Phase.PROPOSING, "PROPOSED", f"Next Goal: {next_course.get('next_goal')}")
                     self._state.save()
                 
-                # TODO: ここで提案された next_course をHUDに送信して承認待機する（Dual-Sailing Mode）
-                # または、自動モードならそのまま次の run() を再帰的に呼び出す処理を後で追加するよ！
+                # HUDへ提案を送信
+                if self.on_proposal:
+                    self.on_proposal(next_course)
+                
+                # 完全自立モードの分岐
+                if self.auto_approve_search and next_course.get('next_goal'):
+                    log.info("🚀 [Auto-Approve] 自律モード有効！承認をスキップして次のミッションへ突入します！")
+                    self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
+                    self._broadcast_cost()
+                    # そのまま次のゴールを再帰的に実行
+                    return self.run(next_course.get('next_goal'), resume=True)
+                else:
+                    log.info("⏸️ [Manual Mode] ユーザーの承認（Approve）を待機します。")
                 
             except Exception as e:
                 log.warning(f"⚠️ [Orchestrator] Failed to propose next course: {e}")
@@ -330,7 +340,7 @@ class Orchestrator:
             self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
             self._broadcast_cost()
 
-            self._update_phase(Phase.DONE, "FINISH", "Mission successful. All tasks completed. ⚓️")
+            self._update_phase(Phase.DONE, "FINISH", "Mission successful. Waiting for next command. ⚓️")
             return self.dock.path if self.dock else Path(".")
 
         except Exception as e:

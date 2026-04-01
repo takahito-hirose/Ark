@@ -45,12 +45,12 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info("📡 New HUD client connected to Neuro-Link.")
+        logger.info("New HUD client connected to Neuro-Link.")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        logger.info("📡 Client disconnected.")
+        logger.info("Client disconnected.")
 
     async def broadcast(self, message: Dict[str, Any]):
         for connection in self.active_connections:
@@ -99,10 +99,21 @@ def create_token_usage_callback(loop: asyncio.AbstractEventLoop):
     return callback
 
 def create_cost_update_callback(loop: asyncio.AbstractEventLoop):
-    """🌟 NEW: Treasuryのコスト情報を横流しするコールバック"""
     def callback(payload: dict):
         asyncio.run_coroutine_threadsafe(
             manager.broadcast(payload),
+            loop
+        )
+    return callback
+
+def create_proposal_callback(loop: asyncio.AbstractEventLoop):
+    def callback(proposal_data: dict):
+        logger.info(f"Orchestrator generated a proposal! Broadcasting to HUD.")
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "PROPOSAL_READY",
+                "data": proposal_data
+            }),
             loop
         )
     return callback
@@ -133,14 +144,15 @@ async def run_ark_mission(req: CommandRequest):
         orc = Orchestrator(
             on_status_change=create_status_callback(loop),
             on_token_usage=create_token_usage_callback(loop),
-            on_cost_update=create_cost_update_callback(loop), # 🌟 追加
+            on_cost_update=create_cost_update_callback(loop),
+            on_proposal=create_proposal_callback(loop),
             workspace_path=req.workspace_path,
             auto_approve_search=req.auto_approve_search,
             config_overrides=config_overrides
         )
         await loop.run_in_executor(None, orc.run, req.command)
     except Exception as e:
-        logger.error("❌ Orchestrator failed: %s", e)
+        logger.error("Orchestrator failed: %s", e)
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "ARK_EVENT",
@@ -153,9 +165,15 @@ async def run_ark_mission(req: CommandRequest):
 
 @app.post("/api/command")
 async def execute_command(req: CommandRequest, background_tasks: BackgroundTasks):
-    logger.info("💬 Command Received from HUD: %s", req.command)
+    logger.info("Command Received from HUD: %s", req.command)
     background_tasks.add_task(run_ark_mission, req=req)
     return {"message": "Mission accepted", "level": "success"}
+
+@app.post("/api/command/approve")
+async def approve_proposal(req: CommandRequest, background_tasks: BackgroundTasks):
+    logger.info("Proposal Approved by Captain! Launching new course: %s", req.command)
+    background_tasks.add_task(run_ark_mission, req=req)
+    return {"message": "Proposal approved and mission launched", "level": "success"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -18,6 +18,7 @@ export default function App() {
     isAwaitingSearchApproval,
     pendingSearchQuery,
     autoApproveSearch,
+    proposal,
     setPhase,
     setThinking,
     setHasError,
@@ -27,13 +28,22 @@ export default function App() {
     setModelOverride,
     setSearchApprovalRequest,
     clearSearchApproval,
-    toggleAutoApprove
+    toggleAutoApprove,
+    setProposal
   } = useArkStore();
 
   const [command, setCommand] = useState('');
   const [targetPath, setTargetPath] = useState('');
   const [ws, setWs] = useState<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  const [editedProposalGoal, setEditedProposalGoal] = useState('');
+
+  useEffect(() => {
+    if (proposal) {
+      setEditedProposalGoal(proposal.next_goal || '');
+    }
+  }, [proposal]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -65,11 +75,6 @@ export default function App() {
         try {
           const data = JSON.parse(event.data);
 
-          // 💡 ノア師匠のデバッグ用: 
-          // 画面が更新されない場合、以下のコメントアウトを外して開発者ツールのConsoleを見てください！
-          // console.log("📡 WS DATA RECEIVED:", data);
-
-          // 🌟 ノア師匠の改修: バックエンドから送られてくるプロパティ名 (cost, total_usd, tokens, total_tokens) を網羅的に拾います！
           if (
             data.type === 'TOKEN_USAGE' ||
             data.type === 'TREASURY_UPDATE' ||
@@ -81,17 +86,18 @@ export default function App() {
             const currentTokens = data.tokens ?? data.total_tokens;
             const currentCost = data.cost ?? data.total_usd ?? data.total_cost;
 
-            if (currentTokens !== undefined) {
-              spendCoins(currentTokens);
-            }
-            if (currentCost !== undefined && currentTokens !== undefined) {
-              updateTreasury(currentCost, currentTokens);
-            }
+            if (currentTokens !== undefined) spendCoins(currentTokens);
+            if (currentCost !== undefined && currentTokens !== undefined) updateTreasury(currentCost, currentTokens);
           }
 
           if (data.type === 'SEARCH_REQUEST') {
             setSearchApprovalRequest(data.query);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🔭 リサーチ要求: "${data.query}"`, level: 'warning' });
+            
+          } else if (data.type === 'PROPOSAL_READY') {
+            setProposal(data.proposal || data.data);
+            addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧭 次なる航路の提案が策定されました。承認を待機中。`, level: 'success' });
+            
           } else if (data.type === 'ARK_EVENT') {
             addLog({
               timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
@@ -110,7 +116,7 @@ export default function App() {
     };
     connectWebSocket();
     return () => ws?.close();
-  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest]);
+  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest, setProposal]);
 
   const handleSearchApproval = (approved: boolean) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -122,6 +128,43 @@ export default function App() {
         level: approved ? 'success' : 'warning'
       });
       clearSearchApproval();
+    }
+  };
+
+  const handleApproveProposal = async () => {
+    if (!editedProposalGoal.trim()) return;
+    
+    setProposal(null);
+    setThinking(true);
+    setHasError(false);
+
+    addLog({
+      timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
+      agent: 'CAPTAIN',
+      message: `[航路承認] ${editedProposalGoal}`,
+      level: 'info'
+    });
+
+    try {
+      await fetch('http://127.0.0.1:8000/api/command/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command: editedProposalGoal,
+          auto_approve_search: autoApproveSearch,
+          workspace_path: targetPath.trim() || undefined,
+          // 🌟 ここにモデルのオーバーライド情報を追加したよ！
+          architect_provider: modelOverrides.architect,
+          coder_provider: modelOverrides.coder,
+          reviewer_provider: modelOverrides.reviewer,
+          reflector_provider: modelOverrides.reflector
+        })
+      });
+    } catch (e) {
+      console.error(e);
+      setHasError(true);
+      setThinking(false);
+      addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'SYSTEM', message: `❌ 承認リクエストの送信に失敗しました`, level: 'error' });
     }
   };
 
@@ -193,6 +236,86 @@ export default function App() {
               <div className="flex gap-4">
                 <button onClick={() => handleSearchApproval(true)} className="flex-1 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-sm transition-all active:scale-95">APPROVE ⚓️</button>
                 <button onClick={() => handleSearchApproval(false)} className="flex-1 py-3 bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-500/50 font-bold rounded-sm transition-all">SKIP 🚫</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {proposal && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 pointer-events-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-slate-900 border-2 border-pink-500 shadow-[0_0_60px_rgba(236,72,153,0.5)] p-8 rounded-lg max-w-3xl w-full relative flex flex-col max-h-[90vh]"
+            >
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-pink-500 text-black px-4 py-1 text-[10px] font-bold tracking-[0.3em]">
+                NEXT COURSE PROPOSAL
+              </div>
+              
+              <h2 className="text-pink-400 text-xl font-bold mb-6 flex items-center gap-3 italic shrink-0">
+                <span className="text-2xl not-italic">🧭</span> 次なる航路の提案
+              </h2>
+              
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 mb-6">
+                <div className="bg-black/50 border border-pink-500/30 p-4 rounded-md">
+                  <h3 className="text-[10px] text-pink-300 tracking-widest mb-3 font-bold uppercase flex justify-between items-center">
+                    <span>Target Goal (Editable)</span>
+                    <span className="text-gray-500 text-[8px] normal-case">内容を直接修正できます</span>
+                  </h3>
+                  <textarea
+                    className="w-full bg-black/40 text-pink-100 text-sm outline-none resize-none custom-scrollbar p-3 border border-pink-500/20 focus:border-pink-500 rounded min-h-[100px]"
+                    value={editedProposalGoal}
+                    onChange={(e) => setEditedProposalGoal(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-black/50 border border-cyan-500/30 p-4 rounded-md">
+                    <h3 className="text-[10px] text-cyan-300 tracking-widest mb-3 font-bold uppercase">Expected Artifacts</h3>
+                    <ul className="text-xs text-cyan-100 space-y-2 list-disc list-inside">
+                      {Array.isArray(proposal.expected_artifacts) ? (
+                        proposal.expected_artifacts.map((art, i) => (
+                          <li key={i} className="leading-relaxed">{art}</li>
+                        ))
+                      ) : (
+                        proposal.expected_artifacts ? <li className="leading-relaxed">{proposal.expected_artifacts}</li> : <li className="text-gray-500 italic list-none">No specific artifacts identified</li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="bg-black/50 border border-orange-500/30 p-4 rounded-md">
+                    <h3 className="text-[10px] text-orange-300 tracking-widest mb-3 font-bold uppercase flex items-center gap-2">
+                      <span className="animate-pulse">⚠️</span> Identified Risks
+                    </h3>
+                    <ul className="text-xs text-orange-200 space-y-2 list-disc list-inside">
+                      {Array.isArray(proposal.risks) ? (
+                        proposal.risks.map((risk, i) => (
+                          <li key={i} className="leading-relaxed">{risk}</li>
+                        ))
+                      ) : (
+                        proposal.risks ? <li className="leading-relaxed">{proposal.risks}</li> : <li className="text-gray-500 italic list-none">No immediate risks identified</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 shrink-0">
+                <button 
+                  onClick={handleApproveProposal} 
+                  disabled={!editedProposalGoal.trim()}
+                  className="flex-1 py-4 bg-pink-600 hover:bg-pink-500 text-white font-black rounded-sm transition-all active:scale-95 tracking-[0.2em] shadow-[0_0_20px_rgba(236,72,153,0.4)] disabled:opacity-50 disabled:grayscale"
+                >
+                  LAUNCH MISSION 🚀
+                </button>
+                <button 
+                  onClick={() => setProposal(null)} 
+                  className="px-8 py-4 bg-gray-800 border border-gray-600 hover:bg-gray-700 hover:border-gray-500 text-gray-300 font-bold rounded-sm transition-all tracking-wider"
+                >
+                  CANCEL
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -279,7 +402,7 @@ export default function App() {
           <div className="flex-1 bg-slate-900/80 backdrop-blur-md border border-cyan-500/40 rounded-sm flex flex-col overflow-hidden shadow-xl">
             <div className="p-2 border-b border-cyan-500/20 bg-cyan-500/10 text-[9px] text-cyan-300 tracking-[0.3em] uppercase font-bold">NAV_PHASE_MONITOR</div>
             <div className="flex-1 flex flex-col justify-center p-6 space-y-4">
-              {['PLANNING', 'CODING', 'REVIEWING', 'COMMITTING', 'DONE'].map(p => (
+              {['PLANNING', 'CODING', 'REVIEWING', 'COMMITTING', 'PROPOSING', 'DONE'].map(p => (
                 <div key={p} className={`flex items-center gap-4 text-[10px] font-black tracking-[0.2em] transition-all duration-500 ${phase === p ? 'text-cyan-400' : 'text-gray-700'}`}>
                   <div className={`w-2.5 h-2.5 rounded-full transition-all duration-700 ${phase === p ? 'bg-cyan-400 shadow-[0_0_15px_#22d3ee] scale-125' : 'bg-gray-800'}`} />
                   {p}

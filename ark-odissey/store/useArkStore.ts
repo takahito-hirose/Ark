@@ -7,9 +7,17 @@ export interface LogEntry {
   level?: 'info' | 'success' | 'error' | 'warning';
 }
 
+// 🌟 NEW: 次なる航路の提案データの型定義
+export interface ProposalData {
+  next_goal: string;
+  expected_artifacts: string[];
+  risks: string[];
+}
+
 interface ArkState {
   logs: LogEntry[];
-  phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'DONE' | 'BLOCKED';
+  // 🌟 UPDATE: 'PROPOSING' フェーズを追加
+  phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'PROPOSING' | 'DONE' | 'BLOCKED';
   isThinking: boolean;
   hasError: boolean;
 
@@ -33,6 +41,9 @@ interface ArkState {
   pendingSearchQuery: string;
   autoApproveSearch: boolean;
 
+  // 🌟 NEW: PROPOSAL STATES
+  proposal: ProposalData | null;
+
   addLog: (log: LogEntry) => void;
   setPhase: (phase: ArkState['phase']) => void;
   setThinking: (val: boolean) => void;
@@ -46,6 +57,9 @@ interface ArkState {
   setSearchApprovalRequest: (query: string) => void;
   clearSearchApproval: () => void;
   toggleAutoApprove: () => void;
+
+  // 🌟 NEW: PROPOSAL ACTIONS
+  setProposal: (proposal: ProposalData | null) => void;
 }
 
 export const useArkStore = create<ArkState>((set) => ({
@@ -69,6 +83,9 @@ export const useArkStore = create<ArkState>((set) => ({
   isAwaitingSearchApproval: false,
   pendingSearchQuery: '',
   autoApproveSearch: false,
+
+  // 🌟 NEW: 初期値はnull
+  proposal: null,
 
   addLog: (log) => set((state) => {
     const newLogs = [...state.logs, log];
@@ -94,4 +111,7 @@ export const useArkStore = create<ArkState>((set) => ({
   setSearchApprovalRequest: (query) => set({ isAwaitingSearchApproval: true, pendingSearchQuery: query }),
   clearSearchApproval: () => set({ isAwaitingSearchApproval: false, pendingSearchQuery: '' }),
   toggleAutoApprove: () => set((state) => ({ autoApproveSearch: !state.autoApproveSearch })),
+
+  // 🌟 NEW: 提案セット・クリアのアクション
+  setProposal: (proposal) => set({ proposal }),
 }));
