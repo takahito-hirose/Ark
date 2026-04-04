@@ -1,10 +1,11 @@
 """
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-Phase 11.5: Next Course Proposal
+Phase 11.5: Next Course Proposal & Continue Mode
 Architectが生成した海図（WBS / SubTask）に基づき、複数のタスクを順次実行。
 ミッション完了後にArchitectが自動的に再起動し、
-「現状の達成度」から自律的に「次なる航路（Next Goal）」を提案する機能を追加。
+「現状の達成度」から自律的に「次なる航路（Next Goal）」と「現在の作業パス」を提案。
+シームレスな継続開発（Continue Mode）を実現する。
 """
 
 from __future__ import annotations
@@ -311,10 +312,14 @@ class Orchestrator:
                 
                 next_course = self._architect.propose_next_course(original_goal, completed_tasks_summary)
                 
+                # 🌟🌟 UPDATE: ここで現在のワークスペースのパスを追加！これがフロントに渡って引き継がれるよ！
+                next_course["workspace_path"] = str(self.dock.path) if self.dock else str(self._base_workspace)
+                
                 log.info(f"🧭 [Orchestrator] Next Course Proposal Ready!")
                 log.info(f"  🎯 Next Goal: {next_course.get('next_goal')}")
                 log.info(f"  📦 Artifacts: {next_course.get('expected_artifacts')}")
                 log.info(f"  ⚠️ Risks: {next_course.get('risks')}")
+                log.info(f"  📁 Workspace: {next_course.get('workspace_path')}") # 🌟 ログでも確認できるように追加！
                 
                 if hasattr(Phase, "PROPOSING"):
                     self._state.push_event(Phase.PROPOSING, "PROPOSED", f"Next Goal: {next_course.get('next_goal')}")

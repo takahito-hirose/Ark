@@ -93,11 +93,11 @@ export default function App() {
           if (data.type === 'SEARCH_REQUEST') {
             setSearchApprovalRequest(data.query);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🔭 リサーチ要求: "${data.query}"`, level: 'warning' });
-            
+
           } else if (data.type === 'PROPOSAL_READY') {
             setProposal(data.proposal || data.data);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧭 次なる航路の提案が策定されました。承認を待機中。`, level: 'success' });
-            
+
           } else if (data.type === 'ARK_EVENT') {
             addLog({
               timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
@@ -133,7 +133,10 @@ export default function App() {
 
   const handleApproveProposal = async () => {
     if (!editedProposalGoal.trim()) return;
-    
+
+    // 🌟 NEW: 手動入力のパスがなければ、提案データに入っている前回のパスを引き継ぐ！
+    const pathToSend = targetPath.trim() || proposal?.workspace_path || undefined;
+
     setProposal(null);
     setThinking(true);
     setHasError(false);
@@ -152,8 +155,7 @@ export default function App() {
         body: JSON.stringify({
           command: editedProposalGoal,
           auto_approve_search: autoApproveSearch,
-          workspace_path: targetPath.trim() || undefined,
-          // 🌟 ここにモデルのオーバーライド情報を追加したよ！
+          workspace_path: pathToSend, // 🌟 ここで引き継いだパスを送信！
           architect_provider: modelOverrides.architect,
           coder_provider: modelOverrides.coder,
           reviewer_provider: modelOverrides.reviewer,
@@ -253,11 +255,11 @@ export default function App() {
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-pink-500 text-black px-4 py-1 text-[10px] font-bold tracking-[0.3em]">
                 NEXT COURSE PROPOSAL
               </div>
-              
+
               <h2 className="text-pink-400 text-xl font-bold mb-6 flex items-center gap-3 italic shrink-0">
                 <span className="text-2xl not-italic">🧭</span> 次なる航路の提案
               </h2>
-              
+
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 mb-6">
                 <div className="bg-black/50 border border-pink-500/30 p-4 rounded-md">
                   <h3 className="text-[10px] text-pink-300 tracking-widest mb-3 font-bold uppercase flex justify-between items-center">
@@ -303,15 +305,15 @@ export default function App() {
               </div>
 
               <div className="flex gap-4 shrink-0">
-                <button 
-                  onClick={handleApproveProposal} 
+                <button
+                  onClick={handleApproveProposal}
                   disabled={!editedProposalGoal.trim()}
                   className="flex-1 py-4 bg-pink-600 hover:bg-pink-500 text-white font-black rounded-sm transition-all active:scale-95 tracking-[0.2em] shadow-[0_0_20px_rgba(236,72,153,0.4)] disabled:opacity-50 disabled:grayscale"
                 >
                   LAUNCH MISSION 🚀
                 </button>
-                <button 
-                  onClick={() => setProposal(null)} 
+                <button
+                  onClick={() => setProposal(null)}
                   className="px-8 py-4 bg-gray-800 border border-gray-600 hover:bg-gray-700 hover:border-gray-500 text-gray-300 font-bold rounded-sm transition-all tracking-wider"
                 >
                   CANCEL

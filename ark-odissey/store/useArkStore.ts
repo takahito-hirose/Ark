@@ -7,11 +7,12 @@ export interface LogEntry {
   level?: 'info' | 'success' | 'error' | 'warning';
 }
 
-// 🌟 NEW: 次なる航路の提案データの型定義
+// 🌟 NEW: 次なる航路の提案データの型定義（パス引き継ぎ追加）
 export interface ProposalData {
   next_goal: string;
   expected_artifacts: string[];
   risks: string[];
+  workspace_path?: string; // 🌟 ここを追加！バックエンドからのパスを受け取るよ
 }
 
 interface ArkState {
