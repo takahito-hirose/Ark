@@ -1,7 +1,7 @@
 """
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
-Phase 11.5: The Eternal Helmsman Update (Next Course)
+Phase 12: The Grand Fleet & TDD Pipeline
 エージェントの「知能」と「規律」を司るプロンプト工場。
 小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
 複雑な差分フォーマットの強制を排除し、
@@ -112,6 +112,7 @@ Break down the goal into a sequence of actionable SUBTASKS.
 2. Only output file names in TARGET_FILES (e.g., `main.py`, not `workspace/main.py`).
 3. Prioritize modifying existing files over creating new ones if applicable.
 4. If Past Experiences or Avoidance Rules exist, formulate constraints to explicitly avoid known failures.
+5. Provide a test code snippet that verifies the core logic of the tasks for TDD (Test-Driven Development).
 
 ## Output Format (Strictly follow this structure)
 TARGET_FILES: <file1>, <file2>
@@ -120,6 +121,12 @@ ACCEPTANCE: <acceptance criteria>
 TASKS:
 - ID: task-1 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: <none or task_id>
 - ID: task-2 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: task-1
+
+TEST_CODE:
+```python
+# Write initial test code snippet here (pytest/unittest format) to verify the logic.
+# If no tests are required, write: # No tests required
+```
 """
 
 # ---------------------------------------------------------------------------

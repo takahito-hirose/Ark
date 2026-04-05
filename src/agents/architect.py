@@ -229,100 +229,73 @@ class ArchitectAgent(BaseAgent):
         return "\n\n".join(context_parts)
 
     # ------------------------------------------------------------------
-    # Parser
+    # Parser Logic
     # ------------------------------------------------------------------
 
-    def _parse_response(
-        self, 
-        response: str, 
-        *, 
-        goal: str, 
-        task_id: str, 
-        search_results: str = ""
-    ) -> PlanPayload:
-        """LLMレスポンスから PlanPayload を抽出する。"""
-        
-        target_files   = self._extract_list(response, "TARGET_FILES")
-        constraints    = self._extract_list(response, "CONSTRAINTS",   ["Python 3.11+", "型ヒント必須"])
-        acceptance     = self._extract_list(response, "ACCEPTANCE",    ["no syntax errors", "file exists"])
+    def _parse_response(self, response: str, *, goal: str, task_id: str, search_results: str = "") -> PlanPayload:
+        """LLMの回答をパースしてPlanPayloadを生成。"""
+        t_files = self._extract_list(response, "TARGET_FILES")
+        constraints = self._extract_list(response, "CONSTRAINTS", ["Python 3.11+"])
+        acceptance = self._extract_list(response, "ACCEPTANCE", ["Passes tests"])
 
-        target_files = [Path(f).name for f in target_files if f]
+        # ファイル名のみにクリーンアップ
+        t_files = [Path(f).name for f in t_files if f]
+        if not t_files:
+            t_files = [f"output_{task_id[:8]}.py"]
 
-        if not target_files:
-            log.warning("⚠️ [Architect] TARGET_FILES のパースに失敗。レスポンスから推測します。")
-            py_matches = re.findall(r'([\w\-\.]+\.py)', response)
-            if py_matches:
-                target_files = [Path(m).name for m in py_matches]
-            else:
-                target_files = [f"output_{task_id[:8]}.py"]
-
-        # 🌟 NEW: サブタスク（海図）をパースして取り出す！
         tasks = self._parse_tasks(response)
-        
-        if tasks:
-            log.info("🗺️ [Architect] Generated %d sub-tasks for the plan.", len(tasks))
-        else:
-            log.warning("⚠️ [Architect] No valid tasks found. Orchestrator might fall back to single-pass mode.")
+        test_code = self._parse_test_code(response)
 
-        payload = PlanPayload(
+        if test_code:
+            log.info("🧪 [Architect] TDD用のテストコード雛形を抽出しました。")
+
+        return PlanPayload(
             goal=goal,
-            spec_path="specs/core_logic.md",
-            target_files=target_files,
+            spec_path="specs/design_spec.md",
+            target_files=t_files,
             constraints=constraints,
             acceptance_criteria=acceptance,
             search_results=search_results,
-            tasks=tasks  # 🌟 ここにタスクリストをセット！
+            tasks=tasks,
+            test_code=test_code
         )
-        return payload
 
     def _parse_tasks(self, response: str) -> list[SubTask]:
-        """レスポンス内の TASKS: セクションから SubTask のリストを抽出する"""
+        """SubTaskセクションのパース。"""
         tasks = []
-        # TASKS: という文字以降をごっそり取得
-        tasks_match = re.search(r'TASKS:\s*(.*?)(?:\n\n|\Z)', response, re.DOTALL | re.IGNORECASE)
-        if not tasks_match:
-            return tasks
-            
-        lines = tasks_match.group(1).strip().split('\n')
-        for line in lines:
-            if not line.strip().startswith('-'):
-                continue
-                
-            # 例: - ID: task-1 | TITLE: Setup | DESC: ... | DEPENDS: task-0
-            parts = [p.strip() for p in line.strip('- ').split('|')]
-            task_dict = {}
-            for part in parts:
-                if ':' in part:
-                    k, v = part.split(':', 1)
-                    task_dict[k.strip().upper()] = v.strip()
-                    
-            if 'ID' in task_dict and 'TITLE' in task_dict and 'DESC' in task_dict:
-                deps = []
-                # 依存関係が書かれている場合だけパースする
-                if 'DEPENDS' in task_dict and task_dict['DEPENDS'].lower() not in ['', 'none']:
-                    deps = [d.strip() for d in task_dict['DEPENDS'].split(',')]
-                    
+        match = re.search(r'TASKS:\s*(.*?)(?:\n\n|\Z)', response, re.S | re.I)
+        if not match: return tasks
+        for line in match.group(1).strip().split('\n'):
+            if not line.strip().startswith('-'): continue
+            d = {}
+            for p in line.strip('- ').split('|'):
+                if ':' in p:
+                    k, v = p.split(':', 1)
+                    data_key = k.strip().upper()
+                    d[data_key] = v.strip()
+            if 'ID' in d and 'TITLE' in d:
+                deps = [x.strip() for x in d.get('DEPENDS', '').split(',') if x.strip() and x.lower() != 'none']
                 tasks.append(SubTask(
-                    id=task_dict['ID'],
-                    title=task_dict['TITLE'],
-                    description=task_dict['DESC'],
-                    dependencies=deps
+                    id=d['ID'], title=d['TITLE'], description=d.get('DESC', ''), dependencies=deps
                 ))
-                
         return tasks
 
+    def _parse_test_code(self, response: str) -> str:
+        """TEST_CODEセクションからコードを抽出。"""
+        bt3 = chr(96) * 3
+        # 正規表現を分割してバッククォート衝突を回避
+        pattern = fr'TEST_CODE:\s*{bt3}(?:python)?\s*(.*?)\s*{bt3}'
+        match = re.search(pattern, response, re.S | re.I)
+        if match:
+            return match.group(1).strip()
+        # ブロックがない場合のフォールバック
+        fb = re.search(r'TEST_CODE:\s*(.*?)(?:\n\n[A-Z_]+:|\Z)', response, re.S | re.I)
+        return fb.group(1).strip() if fb else ""
+
     @staticmethod
-    def _extract_list(text: str, key: str, default: list[str] | None = None) -> list[str]:
-        if default is None:
-            default = []
-            
-        pattern = rf"^{re.escape(key)}\s*:\s*(.+)$"
-        match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
-        if not match:
-            return default
-            
-        raw = match.group(1).strip()
-        raw = raw.replace("`", "").strip()
-        
-        items = [item.strip() for item in raw.split(",") if item.strip()]
+    def _extract_list(text: str, key: str, default: list[str] = None) -> list[str]:
+        if default is None: default = []
+        match = re.search(rf"^{key}\s*:\s*(.+)$", text, re.M | re.I)
+        if not match: return default
+        items = [i.strip().replace("`", "") for i in match.group(1).split(",") if i.strip()]
         return items if items else default

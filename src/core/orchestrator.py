@@ -1,11 +1,9 @@
 """
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-Phase 11.5: Next Course Proposal & Continue Mode
-Architectが生成した海図（WBS / SubTask）に基づき、複数のタスクを順次実行。
-ミッション完了後にArchitectが自動的に再起動し、
-「現状の達成度」から自律的に「次なる航路（Next Goal）」と「現在の作業パス」を提案。
-シームレスな継続開発（Continue Mode）を実現する。
+Phase 11.5: Next Course Proposal & Continue Mode + TDD Approval
+Architectが生成した海図とテストコードに基づき、提督の承認（Approve）を得てから実行。
+却下（Reject）された場合は自動的に再考する。
 """
 
 from __future__ import annotations
@@ -66,7 +64,8 @@ class Orchestrator:
         on_status_change: StatusCallback | None = None,
         on_token_usage: Callable[[int], None] | None = None,
         on_cost_update: Callable[[dict], None] | None = None,
-        on_proposal: Callable[[dict], None] | None = None,  # 🌟 NEW: 提案のブロードキャスト用コールバック
+        on_proposal: Callable[[dict], None] | None = None,
+        on_plan_ready: Callable[[dict], bool] | None = None,  # 🌟 NEW: 設計＆テスト承認用のコールバック
         auto_approve_search: bool = False,
         config_overrides: dict[str, str] | None = None
     ) -> None:
@@ -92,7 +91,8 @@ class Orchestrator:
         self.on_status_change = on_status_change
         self.on_token_usage = on_token_usage
         self.on_cost_update = on_cost_update
-        self.on_proposal = on_proposal  # 🌟 NEW: 接続
+        self.on_proposal = on_proposal
+        self.on_plan_ready = on_plan_ready  # 🌟 NEW: 保存しておく
         
         self._state = ARKState(self._base_workspace)
         if self.on_status_change:
@@ -152,22 +152,51 @@ class Orchestrator:
         log.info("=" * 60)
 
         try:
-            self._update_phase(Phase.PLANNING, "START", "Drafting mission blueprint...")
-            plan = self._phase_plan(goal)
-            self._broadcast_cost()
+            # 🌟 UPDATE: プラン作成と承認のループ！却下されたら作り直すよ！
+            while True:
+                self._update_phase(Phase.PLANNING, "START", "Drafting mission blueprint...")
+                plan = self._phase_plan(goal)
+                self._broadcast_cost()
 
-            goal_files = re.findall(r'(\w+\.py)', goal)
-            if goal_files: 
-                plan.target_files = goal_files
+                goal_files = re.findall(r'(\w+\.py)', goal)
+                if goal_files: 
+                    plan.target_files = goal_files
 
+                if not getattr(plan, 'tasks', None):
+                    fallback_task = SubTask(id="task-0", title="Single Pass Mode", description=plan.goal)
+                    plan.tasks = [fallback_task]
+
+                # 🌟 NEW: コールバックが設定されていれば、提督（フロント）に承認を要求する
+                if self.on_plan_ready:
+                    self._update_phase(Phase.PLANNING, "WAITING", "🧪 提督の設計・テストコード承認を待機中...")
+                    
+                    plan_dict = {
+                        "goal": plan.goal,
+                        "target_files": plan.target_files,
+                        "tasks": [{"id": t.id, "title": t.title, "description": t.description, "dependencies": getattr(t, 'dependencies', [])} for t in plan.tasks],
+                        "test_code": getattr(plan, 'test_code', '# Test code not generated.')
+                    }
+
+                    # ここでフロントから返答が来るまでブロックされる（FastAPI側でEvent待機する想定）
+                    is_approved = self.on_plan_ready(plan_dict)
+
+                    if not is_approved:
+                        log.warning("🚫 [Orchestrator] 提督によって設計が却下されました。再検討を実施します。")
+                        self._update_phase(Phase.PLANNING, "REJECTED", "🚫 却下されました。プランを再考中...")
+                        # 却下されたことをAIに伝え、目標を修正させて再生成ループへ
+                        goal += "\n[System Directive]: 前回の設計図とテストコードは提督によって却下されました。アプローチを見直し、改善したプランを再生成してください。"
+                        continue
+                    
+                    self._update_phase(Phase.PLANNING, "APPROVED", "✅ 設計承認！Coder、作業開始！")
+                
+                # 承認された（または自動進行）場合はループを抜けて実行フェーズへ
+                break
+
+            # --- ここから下は既存の実行フロー ---
             self.dock = setup_dock(self.target_input, self._base_workspace, self._state.task_id, getattr(plan, 'project_name', None))
             if self.dock:
                 for agent in self._agents: 
                     agent._workspace_path = self.dock.path
-
-            if not getattr(plan, 'tasks', None):
-                fallback_task = SubTask(id="task-0", title="Single Pass Mode", description=plan.goal)
-                plan.tasks = [fallback_task]
 
             all_modified_files = set()
             last_code_result: CodePayload | None = None
@@ -303,7 +332,6 @@ class Orchestrator:
             if last_code_result:
                 self._reflector.reflect(plan, last_code_result, attempt_history=attempt_history, is_failure=False)
 
-            # 🌟 NEW: Next Course Proposal (次なる航路の提示) と自律判断
             try:
                 if hasattr(Phase, "PROPOSING"):
                     self._update_phase(Phase.PROPOSING, "START", "Architect is planning the next course...")
@@ -312,29 +340,25 @@ class Orchestrator:
                 
                 next_course = self._architect.propose_next_course(original_goal, completed_tasks_summary)
                 
-                # 🌟🌟 UPDATE: ここで現在のワークスペースのパスを追加！これがフロントに渡って引き継がれるよ！
                 next_course["workspace_path"] = str(self.dock.path) if self.dock else str(self._base_workspace)
                 
                 log.info(f"🧭 [Orchestrator] Next Course Proposal Ready!")
                 log.info(f"  🎯 Next Goal: {next_course.get('next_goal')}")
                 log.info(f"  📦 Artifacts: {next_course.get('expected_artifacts')}")
                 log.info(f"  ⚠️ Risks: {next_course.get('risks')}")
-                log.info(f"  📁 Workspace: {next_course.get('workspace_path')}") # 🌟 ログでも確認できるように追加！
+                log.info(f"  📁 Workspace: {next_course.get('workspace_path')}")
                 
                 if hasattr(Phase, "PROPOSING"):
                     self._state.push_event(Phase.PROPOSING, "PROPOSED", f"Next Goal: {next_course.get('next_goal')}")
                     self._state.save()
                 
-                # HUDへ提案を送信
                 if self.on_proposal:
                     self.on_proposal(next_course)
                 
-                # 完全自立モードの分岐
                 if self.auto_approve_search and next_course.get('next_goal'):
                     log.info("🚀 [Auto-Approve] 自律モード有効！承認をスキップして次のミッションへ突入します！")
                     self._treasury.report_and_enforce_hard_cap(self._agents, self._agent_names)
                     self._broadcast_cost()
-                    # そのまま次のゴールを再帰的に実行
                     return self.run(next_course.get('next_goal'), resume=True)
                 else:
                     log.info("⏸️ [Manual Mode] ユーザーの承認（Approve）を待機します。")
