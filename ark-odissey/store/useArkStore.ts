@@ -7,17 +7,30 @@ export interface LogEntry {
   level?: 'info' | 'success' | 'error' | 'warning';
 }
 
-// 🌟 NEW: 次なる航路の提案データの型定義（パス引き継ぎ追加）
 export interface ProposalData {
   next_goal: string;
   expected_artifacts: string[];
   risks: string[];
-  workspace_path?: string; // 🌟 ここを追加！バックエンドからのパスを受け取るよ
+  workspace_path?: string;
+}
+
+// 🌟 NEW: Architectが生成したプラン（海図とテスト）の型定義
+export interface SubTask {
+  id: string;
+  title: string;
+  description: string;
+  dependencies: string[];
+}
+
+export interface PlanData {
+  goal: string;
+  target_files: string[];
+  tasks: SubTask[];
+  test_code: string;
 }
 
 interface ArkState {
   logs: LogEntry[];
-  // 🌟 UPDATE: 'PROPOSING' フェーズを追加
   phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'PROPOSING' | 'DONE' | 'BLOCKED';
   isThinking: boolean;
   hasError: boolean;
@@ -42,7 +55,11 @@ interface ArkState {
   pendingSearchQuery: string;
   autoApproveSearch: boolean;
 
-  // 🌟 NEW: PROPOSAL STATES
+  // 🌟 NEW: PLAN/TEST APPROVAL STATES (TDDの入り口)
+  isAwaitingPlanApproval: boolean;
+  pendingPlanData: PlanData | null;
+
+  // 🌟 PROPOSAL STATES
   proposal: ProposalData | null;
 
   addLog: (log: LogEntry) => void;
@@ -59,7 +76,11 @@ interface ArkState {
   clearSearchApproval: () => void;
   toggleAutoApprove: () => void;
 
-  // 🌟 NEW: PROPOSAL ACTIONS
+  // 🌟 NEW: PLAN APPROVAL ACTIONS
+  setPlanApprovalRequest: (plan: PlanData) => void;
+  clearPlanApproval: () => void;
+
+  // 🌟 PROPOSAL ACTIONS
   setProposal: (proposal: ProposalData | null) => void;
 }
 
@@ -73,7 +94,6 @@ export const useArkStore = create<ArkState>((set) => ({
   sessionTokens: 0,
   targetDir: '',
 
-  // デフォルトはすべて Gemini 2.5 Flash
   modelOverrides: {
     architect: 'gemini-2.5-flash',
     coder: 'gemini-2.5-flash',
@@ -85,7 +105,10 @@ export const useArkStore = create<ArkState>((set) => ({
   pendingSearchQuery: '',
   autoApproveSearch: false,
 
-  // 🌟 NEW: 初期値はnull
+  // 🌟 NEW: 初期値
+  isAwaitingPlanApproval: false,
+  pendingPlanData: null,
+
   proposal: null,
 
   addLog: (log) => set((state) => {
@@ -113,6 +136,9 @@ export const useArkStore = create<ArkState>((set) => ({
   clearSearchApproval: () => set({ isAwaitingSearchApproval: false, pendingSearchQuery: '' }),
   toggleAutoApprove: () => set((state) => ({ autoApproveSearch: !state.autoApproveSearch })),
 
-  // 🌟 NEW: 提案セット・クリアのアクション
+  // 🌟 NEW: プラン承認のアクション実装
+  setPlanApprovalRequest: (plan) => set({ isAwaitingPlanApproval: true, pendingPlanData: plan }),
+  clearPlanApproval: () => set({ isAwaitingPlanApproval: false, pendingPlanData: null }),
+
   setProposal: (proposal) => set({ proposal }),
 }));

@@ -1,7 +1,7 @@
 """
 ARK Core — Data Models (Payloads & Envelope)
 =============================================
-Phase 11.5: The Eternal Helmsman Update (Next Course)
+Phase 12: The Grand Fleet & TDD Pipeline
 All inter-SYLPH communication is typed via these dataclasses.
 Conforms to: specs/core_logic.md §2
 """
@@ -106,6 +106,8 @@ class PlanPayload:
     search_results:       str = ""
     # 🌟 NEW: Architectが生成したサブタスクのリストを保持するポケット！
     tasks:                list[SubTask] = field(default_factory=list)
+    # 🌟 NEW: TDD用！Architectが生成したテストコードの雛形を保持！
+    test_code:            str = ""
 
 
 @dataclass

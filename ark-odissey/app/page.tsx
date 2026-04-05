@@ -19,6 +19,9 @@ export default function App() {
     pendingSearchQuery,
     autoApproveSearch,
     proposal,
+    // 🌟 NEW: Plan/Test Approval States
+    isAwaitingPlanApproval,
+    pendingPlanData,
     setPhase,
     setThinking,
     setHasError,
@@ -29,7 +32,10 @@ export default function App() {
     setSearchApprovalRequest,
     clearSearchApproval,
     toggleAutoApprove,
-    setProposal
+    setProposal,
+    // 🌟 NEW: Plan Approval Actions
+    setPlanApprovalRequest,
+    clearPlanApproval
   } = useArkStore();
 
   const [command, setCommand] = useState('');
@@ -98,6 +104,11 @@ export default function App() {
             setProposal(data.proposal || data.data);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧭 次なる航路の提案が策定されました。承認を待機中。`, level: 'success' });
 
+          // 🌟 NEW: プラン（テストコード）が準備できた時の処理
+          } else if (data.type === 'PLAN_READY') {
+            setPlanApprovalRequest(data.plan);
+            addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧪 設計図とテストコードの雛形が完成しました。提督の承認を待機中。`, level: 'info' });
+
           } else if (data.type === 'ARK_EVENT') {
             addLog({
               timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
@@ -116,7 +127,7 @@ export default function App() {
     };
     connectWebSocket();
     return () => ws?.close();
-  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest, setProposal]);
+  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest, setProposal, setPlanApprovalRequest]);
 
   const handleSearchApproval = (approved: boolean) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -131,10 +142,23 @@ export default function App() {
     }
   };
 
+  // 🌟 NEW: テスト・プランの承認処理
+  const handlePlanApproval = (approved: boolean) => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'PLAN_RESPONSE', approved }));
+      addLog({
+        timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }),
+        agent: 'CAPTAIN',
+        message: approved ? `✅ 設計とテストコードを承認したわ。Coder、実装開始！` : `❌ 設計を却下したわ。Architect、やり直し！`,
+        level: approved ? 'success' : 'warning'
+      });
+      clearPlanApproval();
+    }
+  };
+
   const handleApproveProposal = async () => {
     if (!editedProposalGoal.trim()) return;
 
-    // 🌟 NEW: 手動入力のパスがなければ、提案データに入っている前回のパスを引き継ぐ！
     const pathToSend = targetPath.trim() || proposal?.workspace_path || undefined;
 
     setProposal(null);
@@ -155,7 +179,7 @@ export default function App() {
         body: JSON.stringify({
           command: editedProposalGoal,
           auto_approve_search: autoApproveSearch,
-          workspace_path: pathToSend, // 🌟 ここで引き継いだパスを送信！
+          workspace_path: pathToSend,
           architect_provider: modelOverrides.architect,
           coder_provider: modelOverrides.coder,
           reviewer_provider: modelOverrides.reviewer,
@@ -238,6 +262,74 @@ export default function App() {
               <div className="flex gap-4">
                 <button onClick={() => handleSearchApproval(true)} className="flex-1 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-sm transition-all active:scale-95">APPROVE ⚓️</button>
                 <button onClick={() => handleSearchApproval(false)} className="flex-1 py-3 bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-500/50 font-bold rounded-sm transition-all">SKIP 🚫</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* 🌟 NEW: プラン＆テストコード承認モーダル */}
+        {isAwaitingPlanApproval && pendingPlanData && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 pointer-events-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-slate-900 border-2 border-emerald-500 shadow-[0_0_60px_rgba(16,185,129,0.5)] p-8 rounded-lg max-w-4xl w-full relative flex flex-col max-h-[90vh]"
+            >
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-emerald-500 text-black px-4 py-1 text-[10px] font-bold tracking-[0.3em]">
+                TDD PRE-FLIGHT CHECK
+              </div>
+
+              <h2 className="text-emerald-400 text-xl font-bold mb-4 flex items-center gap-3 italic shrink-0">
+                <span className="text-2xl not-italic">🧪</span> 設計図とテストコードの承認
+              </h2>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 mb-6 flex flex-col lg:flex-row gap-4">
+                
+                {/* 左側: サブタスク一覧 */}
+                <div className="flex-1 bg-black/50 border border-emerald-500/30 p-4 rounded-md">
+                  <h3 className="text-[10px] text-emerald-300 tracking-widest mb-3 font-bold uppercase flex items-center gap-2">
+                    <span className="text-lg">🗺️</span> Generated Sub-Tasks
+                  </h3>
+                  <div className="space-y-3">
+                    {pendingPlanData.tasks?.map((task, i) => (
+                      <div key={i} className="bg-emerald-900/20 p-2 rounded border border-emerald-500/20">
+                        <div className="text-xs font-bold text-emerald-200">[{task.id}] {task.title}</div>
+                        <div className="text-[10px] text-emerald-100/70 mt-1">{task.description}</div>
+                      </div>
+                    ))}
+                    {(!pendingPlanData.tasks || pendingPlanData.tasks.length === 0) && (
+                      <div className="text-gray-500 text-xs italic">No specific sub-tasks extracted.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 右側: テストコード */}
+                <div className="flex-1 bg-black/50 border border-blue-500/30 p-4 rounded-md flex flex-col">
+                  <h3 className="text-[10px] text-blue-300 tracking-widest mb-3 font-bold uppercase flex items-center gap-2">
+                    <span className="text-lg">🧬</span> Initial Test Code (TDD)
+                  </h3>
+                  <div className="flex-1 bg-black/80 p-3 rounded custom-scrollbar overflow-y-auto border border-blue-500/20 text-[10px] text-blue-100 font-mono whitespace-pre-wrap">
+                    {pendingPlanData.test_code || "# No test code generated."}
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="flex gap-4 shrink-0 mt-4">
+                <button
+                  onClick={() => handlePlanApproval(true)}
+                  className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-sm transition-all active:scale-95 tracking-[0.2em] shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+                >
+                  APPROVE PLAN ⚓️
+                </button>
+                <button
+                  onClick={() => handlePlanApproval(false)}
+                  className="px-8 py-4 bg-red-900/40 hover:bg-red-900/60 border border-red-500/50 text-red-400 font-bold rounded-sm transition-all tracking-wider"
+                >
+                  REJECT & RE-PLAN 🚫
+                </button>
               </div>
             </motion.div>
           </motion.div>

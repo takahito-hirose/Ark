@@ -1,7 +1,7 @@
 """
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
-Phase 11.5: The Eternal Helmsman Update (Next Course)
+Phase 12: The Grand Fleet & TDD Pipeline (Hybrid Reviewer)
 エージェントの「知能」と「規律」を司るプロンプト工場。
 小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
 複雑な差分フォーマットの強制を排除し、
@@ -112,6 +112,7 @@ Break down the goal into a sequence of actionable SUBTASKS.
 2. Only output file names in TARGET_FILES (e.g., `main.py`, not `workspace/main.py`).
 3. Prioritize modifying existing files over creating new ones if applicable.
 4. If Past Experiences or Avoidance Rules exist, formulate constraints to explicitly avoid known failures.
+5. Provide a test code snippet that verifies the core logic of the tasks for TDD (Test-Driven Development).
 
 ## Output Format (Strictly follow this structure)
 TARGET_FILES: <file1>, <file2>
@@ -120,6 +121,12 @@ ACCEPTANCE: <acceptance criteria>
 TASKS:
 - ID: task-1 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: <none or task_id>
 - ID: task-2 | TITLE: <task title> | DESC: <detailed description> | DEPENDS: task-1
+
+TEST_CODE:
+```python
+# Write initial test code snippet here (pytest/unittest format) to verify the logic.
+# If no tests are required, write: # No tests required
+```
 """
 
 # ---------------------------------------------------------------------------
@@ -244,8 +251,28 @@ def build_reviewer_prompt(
 ) -> str:
     """
     Reviewer 向けのプロンプトを構築。
+    特別審査モード（テスト通過時）は評価基準を動的に切り替えます。
     """
     search_hint = f"\n## Research Criteria\nEnsure the following information is reflected correctly:\n{search_results}" if search_results else ""
+
+    # ご主人様の指示に基づく「テスト通過時」の動的プロンプト切り替え
+    is_hybrid_mode = "【特別審査モード】" in acceptance
+
+    if is_hybrid_mode:
+        eval_criteria = f"""\
+## Evaluation Criteria (SPECIAL HYBRID MODE)
+{acceptance}
+3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers or syntax errors.
+
+* Note: Since the unit tests have already passed, DO NOT evaluate standard "Goal Fulfillment" unless it violates the specific integrity rules above.
+"""
+    else:
+        eval_criteria = f"""\
+## Evaluation Criteria
+1. Goal Fulfillment: {goal}
+2. Acceptance Criteria: {acceptance}
+3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers (e.g., `<<<<<<<`, `=======`, `>>>>>>>`) or syntax errors.
+"""
 
     return f"""\
 You are the Reviewer Agent. Evaluate the provided code and determine if it meets the criteria.
@@ -254,10 +281,7 @@ You are the Reviewer Agent. Evaluate the provided code and determine if it meets
 ## Submitted Code
 {code_summary}
 
-## Evaluation Criteria
-1. Goal Fulfillment: {goal}
-2. Acceptance Criteria: {acceptance}
-3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers (e.g., `<<<<<<<`, `=======`, `>>>>>>>`) or syntax errors.
+{eval_criteria}
 
 ## Output Format (Strictly follow this structure)
 VERDICT: PASS or FAIL

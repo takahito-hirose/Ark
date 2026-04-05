@@ -1,13 +1,14 @@
 """
 ARK — Reviewer Agent (SYLPH)
 =============================
+Phase 12: Hybrid Final Review (Quality & Integrity)
 レビューフェーズを担当するエージェント。
 
 責務
 ----
-- :class:`~src.core.models.CodePayload` を受け取りコードを審査し、
-  :class:`~src.core.models.ReviewPayload` を返す。
-- ユーザーの目的（Goal）、コアルール、そして Telescope の検索結果を最優先に評価する。💋
+- :class:`~src.core.models.CodePayload` と :class:`~src.core.models.RunResult` を受け取る。
+- 実行テスト(pytest)がPASSしている場合は、「テストの改ざんがないか」「コード品質は担保されているか」に特化した審査を行う。
+- テストがない場合、またはFAILの場合は、従来通りの厳格な全方位審査を行う。
 """
 
 from __future__ import annotations
@@ -18,14 +19,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_reviewer_prompt # 🌟 Canvasで定義した最新のプロンプトを使用！
+from src.core.agents import build_reviewer_prompt
 from src.core.models import (
     CodePayload,
     IssueSeverity,
     ReviewIssue,
     ReviewPayload,
     ReviewStatus,
-    PlanPayload
+    PlanPayload,
+    RunResult
 )
 
 if TYPE_CHECKING:
@@ -53,26 +55,43 @@ class ReviewerAgent(BaseAgent):
             on_token_usage=on_token_usage
         )
 
-    def review(self, code: CodePayload, retry: int, plan: PlanPayload | None = None) -> ReviewPayload:
+    def review(self, code: CodePayload, retry: int, plan: PlanPayload | None = None, run_result: RunResult | None = None) -> ReviewPayload:
         """コードを審査し ReviewPayload を返す。"""
         log.info(
             "[Reviewer] Auditing %d file(s) (attempt %d) …",
             len(code.files), retry + 1,
         )
 
-        # 🌟 提出されたコードの中身をちゃんと文字列化するのよ💋
         code_summary = self._build_code_summary(code)
-        
-        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す (ここを追加！)
         search_results = getattr(plan, "search_results", "") if plan else ""
-        
-        # 🌟 Canvas (src/core/agents.py) で定義した中央集権的なプロンプトを呼び出すわ！
+
+        # 🌟 STEP 2 (改良版): Hybrid Final Review
+        is_test_passed = False
+        if run_result and run_result.success:
+            # 構文チェックのみではない（実際にテストが実行された）か確認
+            if "Syntax check passed" not in run_result.stdout:
+                is_test_passed = True
+
+        if is_test_passed:
+            log.info("🤖 [Reviewer] 実行テスト(pytest)のPASSを確認。コード品質とテスト改ざんの監視モードへ移行します。")
+            # テスト通過時専用の審査基準を注入し、不要な機能的差し戻しを防ぎつつ品質を担保する
+            review_criteria = (
+                "【特別審査モード】提出されたコードは既に単体テストをPASSしています。"
+                "機能要件の不足を理由にFAILにしないでください。\n"
+                "あなたの役割は以下の2点のみです。問題がなければ必ずPASSとしてください：\n"
+                "1. テストの整合性: Coderがテストを無理やり通すために、テストコード自体を不適切に改ざん・削除していないか。\n"
+                "2. コード品質: 可読性、保守性、命名規則、セキュリティにおいて重大な懸念やスパゲッティコード化がないか。"
+            )
+        else:
+            log.warning("⚠️ [Reviewer] テスト未実施、またはFAILです。全方位の厳格な審査を実施します。")
+            review_criteria = plan.acceptance_criteria if plan else "型ヒント, docstring, ルールの遵守"
+
         prompt = build_reviewer_prompt(
             goal=plan.goal if plan else "不明なゴール",
             code_summary=code_summary,
-            acceptance=plan.acceptance_criteria if plan else "型ヒント, docstring, 💋ルールの遵守",
+            acceptance=review_criteria,
             retry=retry,
-            search_results=search_results  # 🔭 ここで最新の検索知識を審査基準として注入！
+            search_results=search_results
         )
 
         response = self._call_llm(prompt)
@@ -107,7 +126,7 @@ class ReviewerAgent(BaseAgent):
             score=score,
             summary=summary,
             issues=issues,
-            suggested_fix="指示された機能が不足しているか、最新の仕様(Telescope Insights)が守られていません。修正してください。" if status == ReviewStatus.FAIL else "",
+            suggested_fix="指摘されたコード品質の問題、またはテストの改ざんを修正してください。" if status == ReviewStatus.FAIL else "",
         )
         log.info(
             "[Reviewer] Verdict=%s score=%.2f summary=%r",
@@ -126,7 +145,6 @@ class ReviewerAgent(BaseAgent):
         issues: list[ReviewIssue] = []
         pattern = r"([A-Z]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\|\s*([^;\n]+)"
         
-        # ISSUESセクションを特定して解析
         issues_match = re.search(r"ISSUES\s*:\s*(.*)", text, re.DOTALL | re.IGNORECASE)
         if issues_match:
             raw_issues = issues_match.group(1).split("\n")
@@ -148,12 +166,8 @@ class ReviewerAgent(BaseAgent):
 
     @staticmethod
     def _build_code_summary(code: CodePayload) -> str:
-        """
-        提出されたすべてのファイルの中身（パッチを含む）を連結してサマリーを作るわよ。💋
-        """
         parts: list[str] = []
         for fc in code.files:
-            # 🌟 fc.content (パッチの中身) をちゃんと含めるのが「開眼」のポイント！
             parts.append(f"### File: {fc.path}\n```python\n{fc.content}\n```")
         
         summary = "\n\n".join(parts)

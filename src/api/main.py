@@ -3,12 +3,14 @@ ARK — API Server (The Neural Link)
 ==================================
 ARKのオーケストレーターをAPIとして公開し、WebSocket経由で思考プロセスを
 リアルタイムにストリーミング配信する。
-(server.py と仕様を完全に同期：Treasury連携済み)
+(Phase 11.5: TDD Plan Approval & WebSocket Interactive Loop)
 """
 
 import asyncio
+import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -60,6 +62,26 @@ class ConnectionManager:
                 pass
 
 manager = ConnectionManager()
+
+# 🌟 NEW: 承認イベントの信号機！Orchestratorのスレッドをこれで一時停止させる
+class ApprovalManager:
+    def __init__(self):
+        self.plan_event = threading.Event()
+        self.is_plan_approved = False
+        
+        self.search_event = threading.Event()
+        self.is_search_approved = False
+
+    def wait_for_plan_approval(self) -> bool:
+        self.plan_event.clear()  # 信号を赤にする
+        self.plan_event.wait()   # 青になるまでここで待機！
+        return self.is_plan_approved
+
+    def set_plan_response(self, approved: bool):
+        self.is_plan_approved = approved
+        self.plan_event.set()    # 信号を青にする！
+
+approval_manager = ApprovalManager()
 
 class CommandRequest(BaseModel):
     command: str
@@ -118,16 +140,50 @@ def create_proposal_callback(loop: asyncio.AbstractEventLoop):
         )
     return callback
 
+# 🌟 NEW: 設計とテストの承認をフロントに投げ、返事を待機するコールバック
+def create_plan_ready_callback(loop: asyncio.AbstractEventLoop):
+    def callback(plan_data: dict) -> bool:
+        logger.info("Plan ready! Broadcasting to HUD and waiting for Captain's approval...")
+        # 1. フロントにプランのデータを送信
+        asyncio.run_coroutine_threadsafe(
+            manager.broadcast({
+                "type": "PLAN_READY",
+                "plan": plan_data
+            }),
+            loop
+        )
+        # 2. 信号機を使って、フロントからの返事が来るまで Orchestrator を待機させる
+        return approval_manager.wait_for_plan_approval()
+    return callback
+
 @app.get("/")
 def read_root():
-    return {"status": "ARK Online", "version": "11.2-link"}
+    return {"status": "ARK Online", "version": "11.5-link"}
 
+# 🌟 UPDATE: フロントからの WebSocket メッセージを解析して信号機を操作する
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            text = await websocket.receive_text()
+            try:
+                data = json.loads(text)
+                
+                # プラン（テストと設計）の返答を受信！
+                if data.get("type") == "PLAN_RESPONSE":
+                    approved = data.get("approved", False)
+                    logger.info(f"Captain responded to PLAN: Approved={approved}")
+                    approval_manager.set_plan_response(approved)
+                    
+                # 将来用のリサーチ承認の返答
+                elif data.get("type") == "SEARCH_RESPONSE":
+                    approved = data.get("approved", False)
+                    logger.info(f"Captain responded to SEARCH: Approved={approved}")
+                    # 今後、Architectのリサーチ承認用信号機を動かすならここ！
+                    
+            except json.JSONDecodeError:
+                pass # JSON以外は無視
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
@@ -146,10 +202,12 @@ async def run_ark_mission(req: CommandRequest):
             on_token_usage=create_token_usage_callback(loop),
             on_cost_update=create_cost_update_callback(loop),
             on_proposal=create_proposal_callback(loop),
+            on_plan_ready=create_plan_ready_callback(loop),  # 🌟 NEW: 待機用コールバックを接続！
             workspace_path=req.workspace_path,
             auto_approve_search=req.auto_approve_search,
             config_overrides=config_overrides
         )
+        # Orchestratorは別スレッドで走る（だから threading.Event が効く！）
         await loop.run_in_executor(None, orc.run, req.command)
     except Exception as e:
         logger.error("Orchestrator failed: %s", e)

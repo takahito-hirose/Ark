@@ -1,8 +1,9 @@
 """
 ARK — Dock (The Autonomous Shipyard)
 ====================================
+Phase 14: The Merge Protocol (File Lock & Queue)
 プロジェクトの「クローン」「環境構築」「ファイル操作」を司る。
-GitHub URL からの自動接岸 (Cloning) 機能を搭載！💋
+複数のワーカーが同時に書き込んでも競合しないよう、ファイル単位の排他制御を備える。💋
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import os
 import subprocess
 import shutil
 import re
+import threading
+from collections import defaultdict
 from pathlib import Path
 
 # 内部モジュールのインポート
@@ -30,6 +33,12 @@ class Dock:
         self.path = (workspace_root / project_id).resolve()
         self.git = GitTool(self.path)
         self.terminal = TerminalOracle(self.path)
+        
+        # 🌟 NEW: The Merge Protocol (衝突回避ロック機構)
+        # ファイルパスごとの専用ロック（同時に同じファイルを触らせない）
+        self._file_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        # パッケージインストールの全体ロック（同時にpip installを走らせない）
+        self._pip_lock = threading.Lock()
 
     def setup_from_remote(self, repo_url: str) -> bool:
         """
@@ -41,26 +50,19 @@ class Dock:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.path.mkdir(parents=True, exist_ok=True)
 
-        # 1. リポジトリの同期 (.git がない場合のみ)
         if not (self.path / ".git").exists():
             log.info(f"🛰️ [Dock] Initializing and fetching from {repo_url}...")
             try:
-                # git clone はフォルダが空でないと失敗するため、init -> remote add -> fetch で対応
                 subprocess.run(["git", "init"], cwd=self.path, check=True, capture_output=True)
-                
-                # GitToolのメソッドを使って、トークン付きの安全なURLを origin に登録
                 self.git.setup_dock(repo_url)
                 
-                # リモートからファイルを取得
                 log.info("📥 [Dock] Fetching repository data...")
                 subprocess.run(["git", "fetch", "origin"], cwd=self.path, check=True, capture_output=True)
                 
-                # デフォルトブランチ（main か master）を特定してチェックアウト
                 checkout_res = subprocess.run(["git", "checkout", "-f", "main"], cwd=self.path, capture_output=True)
                 if checkout_res.returncode != 0:
                     subprocess.run(["git", "checkout", "-f", "master"], cwd=self.path, capture_output=True)
                 
-                # 強制的にブランチ名を main に統一
                 subprocess.run(["git", "branch", "-M", "main"], cwd=self.path, capture_output=True)
                 log.info(f"✅ [Dock] Remote repository synchronized perfectly.")
                 
@@ -71,12 +73,9 @@ class Dock:
             log.info("⚓️ [Dock] Repository already initialized. Pulling latest...")
             subprocess.run(["git", "pull", "origin", "main"], cwd=self.path, capture_output=True)
 
-        # 2. 仮想環境 (venv) の構築
         self._ensure_venv()
-        # 3. 依存関係のインストール
         self.install_dependencies()
 
-        # 4. 作業ブランチの作成
         clean_id = self.project_id.split('-')[-1]
         branch_name = f"ark/task-{clean_id}"
         self.git.create_topic_branch(branch_name)
@@ -93,40 +92,46 @@ class Dock:
             subprocess.run(cmd.split(), cwd=self.path, capture_output=True)
 
     def install_dependencies(self):
-        """requirements.txt をスキャンして依存関係をインストールする。"""
-        req_file = self.path / "requirements.txt"
-        if req_file.exists():
-            log.info("📦 [Dock] Installing dependencies from requirements.txt...")
-            venv_path = self.path / ".venv"
-            pip_path = venv_path / "bin" / "pip" if os.name != "nt" else venv_path / "Scripts" / "pip.exe"
-            
-            self.terminal.execute_command(f"{pip_path} install -r requirements.txt")
-            log.info("✅ [Dock] Dependency sync complete.")
+        """requirements.txt をスキャンして依存関係をインストールする（スレッドセーフ）。"""
+        # 🌟 UPDATE: 複数スレッドからの同時pip installを防ぐ排他ロック
+        with self._pip_lock:
+            req_file = self.path / "requirements.txt"
+            if req_file.exists():
+                log.info("📦 [Dock] Installing dependencies from requirements.txt...")
+                venv_path = self.path / ".venv"
+                pip_path = venv_path / "bin" / "pip" if os.name != "nt" else venv_path / "Scripts" / "pip.exe"
+                
+                self.terminal.execute_command(f"{pip_path} install -r requirements.txt")
+                log.info("✅ [Dock] Dependency sync complete.")
 
     def write_artifacts(self, changes: list[FileChange]):
         """
-        生成されたコードやパッチをファイルに書き込む。
+        生成されたコードやパッチをファイルに書き込む（スレッドセーフ）。
         """
         needs_install = False
         for change in changes:
             target_path = self.path / change.path
-            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path_str = str(target_path.resolve())
 
             if change.path == "requirements.txt":
                 needs_install = True
 
-            if change.action == FileAction.UPDATE:
-                self._apply_patch(change)
-            else:
-                target_path.write_text(change.content, encoding="utf-8")
-                log.info(f"📝 [Dock] File written: {change.path}")
+            # 🌟 UPDATE: The Merge Protocol - ファイルごとの排他ロックを取得
+            with self._file_locks[target_path_str]:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                if change.action == FileAction.UPDATE:
+                    self._apply_patch(change, target_path)
+                else:
+                    target_path.write_text(change.content, encoding="utf-8")
+                    log.info(f"📝 [Dock] File written safely (Locked): {change.path}")
 
         if needs_install:
             self.install_dependencies()
 
-    def _apply_patch(self, change: FileChange):
-        """SEARCH/REPLACE 形式のパッチを適用する堅牢な外科手術エンジン。"""
-        target_path = self.path / change.path
+    def _apply_patch(self, change: FileChange, target_path: Path):
+        """SEARCH/REPLACE 形式のパッチを適用する堅牢な外科手術エンジン。
+        ※呼び出し元で既にファイルロックを取得している前提で動作します。"""
         if not target_path.exists():
             log.warning(f"⚠️ [Dock] Patch target not found: {change.path}. Creating instead.")
             target_path.write_text(self._clean_all_markers(change.content), encoding="utf-8")
