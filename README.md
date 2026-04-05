@@ -116,11 +116,11 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
 - [x] **Phase 11 (The Universal Port & Seamless Voyage):** 🚀 **COMPLETED**
     - **Continue Mode:** ミッション完了後の次なる航路の自律提案機能。
     - **Branch Inheritance:** 同一プロジェクト内でのブランチ引き継ぎと、リポジトリの継続開発プロトコルの確立。
-- [ ] **Phase 12 (The Grand Fleet & TDD Pipeline):** ⚓️ **NEXT CRITICAL MILESTONE**
-    - **The Grand Fleet (並列航行):** Coderのマルチスレッド化。Architectの指示に基づき分身エージェントを動的召喚し、フロントとバックエンド等を同時並行で実装。
-    - **Merge Protocol:** 複数スレッドによる衝突を防ぐ、排他制御（Lock機構）と直列マージキューの導入。
-    - **Immutable TDD Pipeline:** Architectがテストを先行生成し、Reviewerが機械的にテストを実行して冷酷に合否を判定する「絶対防衛テスト網」の構築。
-- [ ] **Phase 13 (ARK Remote Command):** 🌐 **BEYOND THE HORIZON**
+- [x] **Phase 12 (The Grand Fleet & TDD Pipeline):** 🚀 **COMPLETED**
+    - [x] **The Grand Fleet (並列航行):** Coderのマルチスレッド化。Architectの指示に基づき分身エージェントを動的召喚し、フロントとバックエンド等を同時並行で実装。
+    - [x] **Merge Protocol:** 複数スレッドによる衝突を防ぐ、排他制御（Lock機構）と直列マージキューの導入。
+    - [x] **Immutable TDD Pipeline:** Architectがテストを先行生成し、Reviewerが機械的にテストを実行して冷酷に合否を判定する「絶対防衛テスト網」の構築。
+- [ ] **Phase 13 (ARK Remote Command):** ⚓️ **NEXT CRITICAL MILESTONE**
     - **Slack Bot（広報官）:** 外界からのプロンプトをキャッチする窓口の設置。
     - **The Relay Server（次元の門）:** 自宅PCと外界を繋ぐゲートウェイ。セキュリティを担保したプル型（ポーリング）通信の確立。
     - **Executive Controller:** 遠隔指令をマークダウン解析し、ARKのメインプロセスへ流し込む指揮系統の実装。

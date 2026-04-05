@@ -1,7 +1,7 @@
 """
 ARK — Agents Prompt Core (Clean Edition)
 =====================================================
-Phase 12: The Grand Fleet & TDD Pipeline
+Phase 12: The Grand Fleet & TDD Pipeline (Hybrid Reviewer)
 エージェントの「知能」と「規律」を司るプロンプト工場。
 小型LLMでも誤動作しないよう、ノイズとなるロールプレイ要素や
 複雑な差分フォーマットの強制を排除し、
@@ -251,8 +251,28 @@ def build_reviewer_prompt(
 ) -> str:
     """
     Reviewer 向けのプロンプトを構築。
+    特別審査モード（テスト通過時）は評価基準を動的に切り替えます。
     """
     search_hint = f"\n## Research Criteria\nEnsure the following information is reflected correctly:\n{search_results}" if search_results else ""
+
+    # ご主人様の指示に基づく「テスト通過時」の動的プロンプト切り替え
+    is_hybrid_mode = "【特別審査モード】" in acceptance
+
+    if is_hybrid_mode:
+        eval_criteria = f"""\
+## Evaluation Criteria (SPECIAL HYBRID MODE)
+{acceptance}
+3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers or syntax errors.
+
+* Note: Since the unit tests have already passed, DO NOT evaluate standard "Goal Fulfillment" unless it violates the specific integrity rules above.
+"""
+    else:
+        eval_criteria = f"""\
+## Evaluation Criteria
+1. Goal Fulfillment: {goal}
+2. Acceptance Criteria: {acceptance}
+3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers (e.g., `<<<<<<<`, `=======`, `>>>>>>>`) or syntax errors.
+"""
 
     return f"""\
 You are the Reviewer Agent. Evaluate the provided code and determine if it meets the criteria.
@@ -261,10 +281,7 @@ You are the Reviewer Agent. Evaluate the provided code and determine if it meets
 ## Submitted Code
 {code_summary}
 
-## Evaluation Criteria
-1. Goal Fulfillment: {goal}
-2. Acceptance Criteria: {acceptance}
-3. Code Integrity: Ensure the code is complete and absolutely free of any git conflict markers (e.g., `<<<<<<<`, `=======`, `>>>>>>>`) or syntax errors.
+{eval_criteria}
 
 ## Output Format (Strictly follow this structure)
 VERDICT: PASS or FAIL
