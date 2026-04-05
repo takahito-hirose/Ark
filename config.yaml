@@ -23,10 +23,10 @@ reflector_provider: "ollama"  # 👈 Reflector 用のプロバイダを追加！
 # Role-specific Model Selection for Ollama
 # ---------------------------------------------------------------------------
 # ジェニーの MacBook Air に入ってる「最強パーティ」をセットするわよ！
-architect_model: "gemma3:4b"
+architect_model: "gemma4:e4b"
 coder_model: "qwen2.5-coder:7b"
 reviewer_model: "llama3.2:3b"
-reflector_model: "llama3.2:3b"  # 👈 Reflector 用のモデルを追加（Reviewerと同じかgemma3:4bがオススメ）
+reflector_model: "llama3.2:3b"  # 👈 Reflector 用のモデルを追加（Reviewerと同じかgemma4:e4bがオススメ）
 
 # ---------------------------------------------------------------------------
 # Google Gemini settings (会社に戻った時はここを gemini に戻してね)
