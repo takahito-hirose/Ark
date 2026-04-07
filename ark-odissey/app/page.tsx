@@ -19,9 +19,11 @@ export default function App() {
     pendingSearchQuery,
     autoApproveSearch,
     proposal,
-    // 🌟 NEW: Plan/Test Approval States
     isAwaitingPlanApproval,
     pendingPlanData,
+    // 🌟 NEW: 動的モデルのリストと取得関数をストアから呼び出す
+    availableModels,
+    fetchModels,
     setPhase,
     setThinking,
     setHasError,
@@ -33,7 +35,6 @@ export default function App() {
     clearSearchApproval,
     toggleAutoApprove,
     setProposal,
-    // 🌟 NEW: Plan Approval Actions
     setPlanApprovalRequest,
     clearPlanApproval
   } = useArkStore();
@@ -44,6 +45,11 @@ export default function App() {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const [editedProposalGoal, setEditedProposalGoal] = useState('');
+
+  // 🌟 NEW: 画面ロード時に一回だけOllamaからモデル一覧を取得する
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
 
   useEffect(() => {
     if (proposal) {
@@ -104,7 +110,6 @@ export default function App() {
             setProposal(data.proposal || data.data);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧭 次なる航路の提案が策定されました。承認を待機中。`, level: 'success' });
 
-          // 🌟 NEW: プラン（テストコード）が準備できた時の処理
           } else if (data.type === 'PLAN_READY') {
             setPlanApprovalRequest(data.plan);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🧪 設計図とテストコードの雛形が完成しました。提督の承認を待機中。`, level: 'info' });
@@ -142,7 +147,6 @@ export default function App() {
     }
   };
 
-  // 🌟 NEW: テスト・プランの承認処理
   const handlePlanApproval = (approved: boolean) => {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'PLAN_RESPONSE', approved }));
@@ -267,7 +271,6 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* 🌟 NEW: プラン＆テストコード承認モーダル */}
         {isAwaitingPlanApproval && pendingPlanData && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -287,7 +290,6 @@ export default function App() {
 
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 mb-6 flex flex-col lg:flex-row gap-4">
                 
-                {/* 左側: サブタスク一覧 */}
                 <div className="flex-1 bg-black/50 border border-emerald-500/30 p-4 rounded-md">
                   <h3 className="text-[10px] text-emerald-300 tracking-widest mb-3 font-bold uppercase flex items-center gap-2">
                     <span className="text-lg">🗺️</span> Generated Sub-Tasks
@@ -305,7 +307,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 右側: テストコード */}
                 <div className="flex-1 bg-black/50 border border-blue-500/30 p-4 rounded-md flex flex-col">
                   <h3 className="text-[10px] text-blue-300 tracking-widest mb-3 font-bold uppercase flex items-center gap-2">
                     <span className="text-lg">🧬</span> Initial Test Code (TDD)
@@ -453,6 +454,7 @@ export default function App() {
                 <span className="text-[8px] text-purple-600 font-normal">SOTA ENGINE SELECTOR</span>
               </div>
               <div className="space-y-2">
+                {/* 🌟 NEW: 動的モデルのリストを展開してセレクトボックスに表示 */}
                 {(['architect', 'coder', 'reviewer', 'reflector'] as const).map(role => (
                   <div key={role} className="flex justify-between items-center text-[10px]">
                     <span className="uppercase text-gray-500 font-bold w-20">{role}</span>
@@ -461,11 +463,11 @@ export default function App() {
                       onChange={(e) => setModelOverride(role, e.target.value)}
                       className="bg-black/60 border border-purple-500/20 text-purple-100 outline-none p-1.5 px-2 uppercase cursor-pointer hover:border-purple-400 transition-all w-44 text-[9px] font-bold tracking-tight"
                     >
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                      <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                      <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="deepseek-coder">DeepSeek Coder</option>
-                      <option value="ollama/qwen2.5-coder:7b">Ollama (Qwen 7B)</option>
+                      {availableModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 ))}

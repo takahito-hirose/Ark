@@ -62,11 +62,22 @@ class SlackPRNotificationHandler(logging.Handler):
 logging.getLogger().addHandler(SlackPRNotificationHandler())
 
 # --- Phase 13: Slackからのコールバック処理 ---
-# 🌟 UPDATE: workspace_path を受け取れるように引数を追加！
-async def handle_slack_command(command: str, auto_approve: bool, workspace_path: Optional[str] = None):
+# 🌟 UPDATE: providers を受け取れるように引数を追加！
+async def handle_slack_command(command: str, auto_approve: bool, workspace_path: Optional[str] = None, providers: dict = None):
     """Slackから新規ミッションを受信したときに発火する"""
-    logger.info(f"🚀 Launching mission from Slack: {command} (Workspace: {workspace_path})")
-    req = CommandRequest(command=command, auto_approve_search=auto_approve, workspace_path=workspace_path)
+    providers = providers or {}
+    logger.info(f"🚀 Launching mission from Slack: {command} (Workspace: {workspace_path}, Providers: {providers})")
+    
+    # 受け取ったモデル情報をCommandRequestにセット！
+    req = CommandRequest(
+        command=command, 
+        auto_approve_search=auto_approve, 
+        workspace_path=workspace_path,
+        architect_provider=providers.get("architect_provider"),
+        coder_provider=providers.get("coder_provider"),
+        reviewer_provider=providers.get("reviewer_provider"),
+        reflector_provider=providers.get("reflector_provider")
+    )
     # Orchestratorをバックグラウンドタスクとして起動
     asyncio.create_task(run_ark_mission(req))
 
@@ -217,7 +228,7 @@ def create_proposal_callback(loop: asyncio.AbstractEventLoop):
             }),
             loop
         )
-        # 2. 🌟 Slackへもボタン付きで提案を送信！
+        # 2. Slackへもボタン付きで提案を送信！
         asyncio.run_coroutine_threadsafe(
             send_slack_next_proposal_message(proposal_data), loop
         )

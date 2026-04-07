@@ -1,9 +1,9 @@
 """
 ARK (Autonomous Resilient Kernel) — Provider Factory
 =====================================================
-Phase 11.2: LiteLLM Router Fix
-Vertex AI への誤爆を防ぎ、Google AI Studio (Gemini API) を
-優先的に使用するようにモデル名のパースを強化したよ！
+Phase 13.5: Dynamic Model Routing
+Slackから送られてくる動的なモデル名（ollama|qwen2.5-coder:7b 等）を
+正しく解釈して、適切なプロバイダーとモデル名をセットアップするよ！
 """
 
 from __future__ import annotations
@@ -37,14 +37,17 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
     provider_name = ""
     model_name = ""
 
-    # 🌟 ノア特製・Vertex AI 誤爆防止パーサー
-    if raw_val.startswith("ollama/"):
+    # 🌟 ノア特製・動的モデル対応パーサー
+    if raw_val.startswith("ollama|"):
+        # Slackから "ollama|qwen2.5-coder:7b" の形で来た場合
+        provider_name = "ollama"
+        model_name = raw_val.split("|", 1)[1]
+    elif raw_val.startswith("ollama/"):
+        # 既存のコマンドライン等の "ollama/..." 指定
         provider_name = "ollama"
         model_name = raw_val.replace("ollama/", "", 1)
     elif "gemini" in raw_val:
         provider_name = "gemini"
-        # LiteLLM で Vertex AI ではなく Google AI Studio を使うには
-        # モデル名の先頭に "gemini/" をつけるのが確実なんだって！
         if not raw_val.startswith("gemini/"):
             model_name = f"gemini/{raw_val}"
         else:
@@ -55,7 +58,16 @@ def get_provider(role: str, cfg: "ARKConfig") -> BaseProvider:
     elif "deepseek" in raw_val:
         provider_name = "deepseek"
         model_name = raw_val
+    elif "gpt" in raw_val or raw_val == "openai":
+        provider_name = "openai"
+        if raw_val == "openai":
+            # ただ openai と指定された場合はデフォルトを設定
+            model_name = getattr(cfg, f"{role_lower}_model_openai", getattr(cfg, "model_name", "gpt-4o"))
+        else:
+            # "gpt-4o" などをそのままモデル名として使う
+            model_name = raw_val
     else:
+        # その他（単に "ollama" と来た場合など）
         provider_name = raw_val
         suffix = f"_{provider_name}" if provider_name != "ollama" else ""
         model_attr_name = f"{role_lower}_model{suffix}"
