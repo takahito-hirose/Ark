@@ -120,17 +120,21 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **The Grand Fleet (並列航行):** Coderのマルチスレッド化。Architectの指示に基づき分身エージェントを動的召喚し、フロントとバックエンド等を同時並行で実装。
     - [x] **Merge Protocol:** 複数スレッドによる衝突を防ぐ、排他制御（Lock機構）と直列マージキューの導入。
     - [x] **Immutable TDD Pipeline:** Architectがテストを先行生成し、Reviewerが機械的にテストを実行して冷酷に合否を判定する「絶対防衛テスト網」の構築。
-- [ ] **Phase 13 (ARK Remote Command):** ⚓️ **NEXT CRITICAL MILESTONE**
-    - **Slack Bot（広報官）:** 外界からのプロンプトをキャッチする窓口の設置。
-    - **The Relay Server（次元の門）:** 自宅PCと外界を繋ぐゲートウェイ。セキュリティを担保したプル型（ポーリング）通信の確立。
-    - **Executive Controller:** 遠隔指令をマークダウン解析し、ARKのメインプロセスへ流し込む指揮系統の実装。
+- [x] **Phase 13 (ARK Remote Command):** 🚀 **COMPLETED**
+    - [x] **Slack Bot（広報官）:** 外界からのプロンプトをキャッチし、SlackのBlock Kitを用いて承認や継続判断をインタラクティブに行う窓口の設置。
+    - [x] **The Relay Server（次元の門）:** Socket Modeを採用し、ポート開放不要で自宅PCと外界を安全に繋ぐプル型通信の確立。
+    - [x] **PR Notification Spy:** ターミナルログからPRのURLを自律検知し、Slackへ即座に任務完了報告を送信する監視網の実装。
+- [x] **Phase 13.5 (Interactive Model Selection):** 🚀 **COMPLETED**
+    - [x] **Dynamic Engine Fetcher:** 起動中のOllamaサーバーから利用可能なローカルモデル一覧をリアルタイムに取得。
+    - [x] **UI/UX Sync:** SlackのドロップダウンUIと、HUD（React）のセレクトボックスに最新のモデルリストを完全同期。
+    - [x] **Provider Routing:** `ollama|モデル名` や `gpt-4o` などの動的モデル指定を完璧に解釈し、APIをシームレスに切り替えるルーターの強化。
 
 > **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
 ---
 ## 🛠️ 事前準備 (Environment Setup)
 
-ARKを初めて起動する際、または環境を最新に保つために、必要な資材（パッケージ）のインストールを行います。
+ARKを初めて起動する際、または環境を最新に保つために、必要な資材（パッケージ）のインストールを行います。ß
 特にナビゲーションの中核となる `litellm` は更新頻度が非常に高いため、定期的なアップグレードを推奨します。
 
 ### Windows環境の場合 (PowerShell / Command Prompt)
