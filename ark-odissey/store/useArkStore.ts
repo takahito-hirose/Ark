@@ -14,7 +14,6 @@ export interface ProposalData {
   workspace_path?: string;
 }
 
-// 🌟 NEW: Architectが生成したプラン（海図とテスト）の型定義
 export interface SubTask {
   id: string;
   title: string;
@@ -29,20 +28,25 @@ export interface PlanData {
   test_code: string;
 }
 
+// 🌟 NEW: モデルの型定義
+export interface ArkModel {
+  id: string;
+  name: string;
+  isLocal: boolean;
+}
+
 interface ArkState {
   logs: LogEntry[];
   phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'PROPOSING' | 'DONE' | 'BLOCKED';
   isThinking: boolean;
   hasError: boolean;
 
-  // 🪙 The Treasury
   goldCoins: number;
   sessionCost: number;
   sessionTokens: number;
 
   targetDir: string;
 
-  // 🛠 CURRENT MODELS
   modelOverrides: {
     architect: string;
     coder: string;
@@ -50,17 +54,18 @@ interface ArkState {
     reflector: string;
   };
 
-  // 🔭 SEARCH APPROVAL STATES
   isAwaitingSearchApproval: boolean;
   pendingSearchQuery: string;
   autoApproveSearch: boolean;
 
-  // 🌟 NEW: PLAN/TEST APPROVAL STATES (TDDの入り口)
   isAwaitingPlanApproval: boolean;
   pendingPlanData: PlanData | null;
 
-  // 🌟 PROPOSAL STATES
   proposal: ProposalData | null;
+
+  // 🌟 NEW: 動的モデルリストとフェッチ関数
+  availableModels: ArkModel[];
+  fetchModels: () => Promise<void>;
 
   addLog: (log: LogEntry) => void;
   setPhase: (phase: ArkState['phase']) => void;
@@ -71,16 +76,13 @@ interface ArkState {
   setTargetDir: (dir: string) => void;
   setModelOverride: (role: keyof ArkState['modelOverrides'], provider: string) => void;
 
-  // 🔭 SEARCH ACTIONS
   setSearchApprovalRequest: (query: string) => void;
   clearSearchApproval: () => void;
   toggleAutoApprove: () => void;
 
-  // 🌟 NEW: PLAN APPROVAL ACTIONS
   setPlanApprovalRequest: (plan: PlanData) => void;
   clearPlanApproval: () => void;
 
-  // 🌟 PROPOSAL ACTIONS
   setProposal: (proposal: ProposalData | null) => void;
 }
 
@@ -105,11 +107,52 @@ export const useArkStore = create<ArkState>((set) => ({
   pendingSearchQuery: '',
   autoApproveSearch: false,
 
-  // 🌟 NEW: 初期値
   isAwaitingPlanApproval: false,
   pendingPlanData: null,
 
   proposal: null,
+
+  // 🌟 NEW: 初期値としてクラウドモデルを入れておく
+  availableModels: [
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isLocal: false },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', isLocal: false },
+    { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', isLocal: false },
+    { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isLocal: false },
+  ],
+
+  // 🌟 NEW: Ollamaからモデル一覧を取得してストアに追加するアクション
+  fetchModels: async () => {
+    try {
+      // Reactアプリ（ブラウザ）から直接OllamaのAPIを叩く
+      const res = await fetch('http://localhost:11434/api/tags');
+      if (!res.ok) throw new Error('Ollama API response was not ok');
+      
+      const data = await res.json();
+      const localModels: ArkModel[] = data.models.map((m: any) => ({
+        id: `ollama|${m.name}`,       // 例: ollama|qwen2.5-coder:7b
+        name: `🦙 Ollama (${m.name})`, // UI表示用
+        isLocal: true
+      }));
+
+      set((state) => {
+        // 既存のクラウドモデルと、新しく取得したローカルモデルを合体！
+        const cloudModels = state.availableModels.filter(m => !m.isLocal);
+        return { availableModels: [...localModels, ...cloudModels] };
+      });
+    } catch (error) {
+      console.warn('Ollamaのモデル取得に失敗しました。CORSエラーかOllamaが停止しています。', error);
+      // 取得失敗時は、フォールバック用のデフォルトOllamaを1つだけ追加する
+      set((state) => {
+        const cloudModels = state.availableModels.filter(m => !m.isLocal);
+        return { 
+          availableModels: [
+            { id: 'ollama', name: 'Ollama (Local Default)', isLocal: true }, 
+            ...cloudModels
+          ] 
+        };
+      });
+    }
+  },
 
   addLog: (log) => set((state) => {
     const newLogs = [...state.logs, log];
@@ -136,7 +179,6 @@ export const useArkStore = create<ArkState>((set) => ({
   clearSearchApproval: () => set({ isAwaitingSearchApproval: false, pendingSearchQuery: '' }),
   toggleAutoApprove: () => set((state) => ({ autoApproveSearch: !state.autoApproveSearch })),
 
-  // 🌟 NEW: プラン承認のアクション実装
   setPlanApprovalRequest: (plan) => set({ isAwaitingPlanApproval: true, pendingPlanData: plan }),
   clearPlanApproval: () => set({ isAwaitingPlanApproval: false, pendingPlanData: null }),
 

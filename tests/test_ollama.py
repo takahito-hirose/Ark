@@ -4,7 +4,7 @@ from src.core.ollama_client import OllamaClient
 class TestOllamaClient(unittest.TestCase):
     def setUp(self):
         self.api_endpoint = "http://localhost:11434"  # Replace with your LLM API endpoint
-        self.model_name = "gemma3:4b"  # Replace with your model name
+        self.model_name = "gemma4:e4b"  # Replace with your model name
         self.ollama_client = OllamaClient(self.api_endpoint, self.model_name)
 
     def test_generate_text(self):

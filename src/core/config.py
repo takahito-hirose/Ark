@@ -95,7 +95,7 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
         # 🌟 NEW: MacBook Air 最強パーティ編成のデフォルト値！
         architect_model: str = "qwen3.5:9b"      # 新エース！複雑な設計とAST解析担当
         coder_model: str = "qwen2.5-coder:7b"    # 不動の天才プログラマー
-        reviewer_model: str = "gemma3:4b"        # 厳格なインスペクター
+        reviewer_model: str = "gemma4:e4b"        # 厳格なインスペクター
         reflector_model: str = "llama3.2:3b"     # 記録係
 
         # --- Gemini 設定 ---
@@ -176,7 +176,7 @@ else:  # pragma: no cover
         # 🌟 NEW: フォールバック側も最強パーティ編成に統一！
         architect_model: str = "qwen3.5:9b"
         coder_model: str = "qwen2.5-coder:7b"
-        reviewer_model: str = "gemma3:4b"
+        reviewer_model: str = "gemma4:e4b"
         reflector_model: str = "llama3.2:3b"
 
         gemini_api_key: str = ""
