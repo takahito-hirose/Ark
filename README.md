@@ -159,6 +159,14 @@ python3 -m pip install -r requirements.txt
 python3 -m pip install --upgrade litellm
 ```
 
+## 🔰 新規参画者の方へ (Getting Started)
+
+ARKの開発・運用に参加される方は、まず以下のドキュメントに沿って初期セットアップを完了させてください。
+
+1. [環境構築ガイド](docs/01_SETUP_GUIDE.md) （Ollamaと前提環境の準備）
+2. [環境変数とAPI設定](docs/02_API_AND_ENV.md) （必須APIキーの登録）
+3. [Slack連携手順](docs/03_SLACK_INTEGRATION.md) （コマンド受付インターフェースの構築）
+
 
 ## ⚓️ 起動シークエンス (How to Run ARK)
 
