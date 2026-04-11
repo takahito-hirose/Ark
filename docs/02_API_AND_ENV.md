@@ -14,6 +14,9 @@
 | `OPENAI_API_KEY` | GPT系モデル利用時のAPIキー | 任意（OpenAI利用時必須） |
 | `DEEPSEEK_API_KEY` | DeepSeekモデル利用時のAPIキー | 任意（DeepSeek利用時必須） |
 | `BRAVE_SEARCH_API_KEY` | Telescope（自律Web検索）機能を利用するためのAPIキー | 任意（Web検索機能利用時必須） |
+| `GITHUB_TOKEN` | GitHubでのリモートリポジトリ作成、自動Push、PR作成に必要 | 必須 |
+| `GIT_AUTHOR_NAME` | Gitコミット時のユーザー名 (デフォルト: `ARK SYLPH`) | 任意 |
+| `GIT_AUTHOR_EMAIL` | Gitコミット時のメールアドレス (デフォルト: `sylph@ark.local`) | 任意 |
 | `OLLAMA_API_BASE` | OllamaのAPIエンドポイント（デフォルト: `http://localhost:11434`） | 任意 |
 | `ARK_*_PROVIDER` | 各ロール（ARCHITECT等）のデフォルトプロバイダー | 任意（ターミナル実行時のフォールバック） |
 | `ARK_*_MODEL` | 各ロール（ARCHITECT等）のデフォルトモデル名 | 任意（ターミナル実行時のフォールバック） |
@@ -38,6 +41,11 @@ DEEPSEEK_API_KEY=your-deepseek-api-key
 
 # Web Search API
 BRAVE_SEARCH_API_KEY=your-brave-search-api-key
+
+# GitHub Integration
+GITHUB_TOKEN=ghp_your-github-token
+# GIT_AUTHOR_NAME=ARK SYLPH
+# GIT_AUTHOR_EMAIL=sylph@ark.local
 
 # Optional: Local LLM Endpoint (Ollama)
 # OLLAMA_API_BASE=http://localhost:11434
