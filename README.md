@@ -128,6 +128,12 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Dynamic Engine Fetcher:** 起動中のOllamaサーバーから利用可能なローカルモデル一覧をリアルタイムに取得。
     - [x] **UI/UX Sync:** SlackのドロップダウンUIと、HUD（React）のセレクトボックスに最新のモデルリストを完全同期。
     - [x] **Provider Routing:** `ollama|モデル名` や `gpt-4o` などの動的モデル指定を完璧に解釈し、APIをシームレスに切り替えるルーターの強化。
+- [x] **Phase 14 (The Fleet Expansion - Onboarding & Documentation):** 🚀 **COMPLETED**
+    - [x] **Setup Guide:** 前提環境とローカルLLM（Ollama）のCORS回避設定を含む初期構築手順の策定。
+    - [x] **Environment Security:** `factory.py` 等から環境変数を抽出し、APIキーの取得先と雛形をまとめた設定ガイドの作成。
+    - [x] **Slack Integration Guide:** Socket Modeのアーキテクチャ解説と、Bot作成・権限設定の完全チュートリアル構築。
+    - [x] **Web Telescope Setup:** Brave Search APIの取得手順と、無料枠で稼働する安全設計（モックモード含む）の明文化。
+    - [x] **GitHub Genesis Engine:** 自動リポジトリ生成・PushのためのPAT取得手順と、認証バイパスの仕組みのドキュメント化。
 
 > **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
@@ -166,6 +172,8 @@ ARKの開発・運用に参加される方は、まず以下のドキュメン�
 1. [環境構築ガイド](docs/01_SETUP_GUIDE.md) （Ollamaと前提環境の準備）
 2. [環境変数とAPI設定](docs/02_API_AND_ENV.md) （必須APIキーの登録）
 3. [Slack連携手順](docs/03_SLACK_INTEGRATION.md) （コマンド受付インターフェースの構築）
+4. [Telescopeセットアップ](docs/04_TELESCOPE_SETUP.md) （自律Web検索機能の有効化）
+5. [GitHubセットアップ](docs/05_GITHUB_SETUP.md) （リモートリポジトリ連携と自動Push機能の有効化）
 
 
 ## ⚓️ 起動シークエンス (How to Run ARK)
