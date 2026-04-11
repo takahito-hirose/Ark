@@ -15,6 +15,8 @@
 | `DEEPSEEK_API_KEY` | DeepSeekモデル利用時のAPIキー | 任意（DeepSeek利用時必須） |
 | `BRAVE_SEARCH_API_KEY` | Telescope（自律Web検索）機能を利用するためのAPIキー | 任意（Web検索機能利用時必須） |
 | `OLLAMA_API_BASE` | OllamaのAPIエンドポイント（デフォルト: `http://localhost:11434`） | 任意 |
+| `ARK_*_PROVIDER` | 各ロール（ARCHITECT等）のデフォルトプロバイダー | 任意（ターミナル実行時のフォールバック） |
+| `ARK_*_MODEL` | 各ロール（ARCHITECT等）のデフォルトモデル名 | 任意（ターミナル実行時のフォールバック） |
 
 ---
 
@@ -39,6 +41,17 @@ BRAVE_SEARCH_API_KEY=your-brave-search-api-key
 
 # Optional: Local LLM Endpoint (Ollama)
 # OLLAMA_API_BASE=http://localhost:11434
+
+# --- ターミナル直接実行時のデフォルト（フォールバック）設定 ---
+ARK_ARCHITECT_PROVIDER=ollama
+ARK_CODER_PROVIDER=ollama
+ARK_REVIEWER_PROVIDER=ollama
+ARK_REFLECTOR_PROVIDER=ollama
+
+ARK_ARCHITECT_MODEL=gemma4:e4b
+ARK_CODER_MODEL=qwen2.5-coder:7b
+ARK_REVIEWER_MODEL=gemma4:e4b
+ARK_REFLECTOR_MODEL=llama3.2:3b
 ```
 
 ---
