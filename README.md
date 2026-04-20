@@ -134,23 +134,24 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Slack Integration Guide:** Socket Modeのアーキテクチャ解説と、Bot作成・権限設定の完全チュートリアル構築。
     - [x] **Web Telescope Setup:** Brave Search APIの取得手順と、無料枠で稼働する安全設計（モックモード含む）の明文化。
     - [x] **GitHub Genesis Engine:** 自動リポジトリ生成・PushのためのPAT取得手順と、認証バイパスの仕組みのドキュメント化。
-- [ ] **Phase 15 (The Pharos - 独立品質監査APIと絶対防衛網):** 🌟 **PLANNED**
+- [ ] **Phase 15 (The Fleet Awakening - 艦隊の覚醒と記憶の獲得):** 🌟 **PLANNED**
+    - **Domain-Driven Agent Structure:** 各エージェントを独立したディレクトリに分離し、`Skills.md` で個別のプロンプト（人格とスキル）を外出しで管理する高凝集・低結合な構成へのリファクタリング。
+    - **Ark Model Router:** `LiteLLM` を導入し、OpenAI、Anthropic、Ollama(Local)など、その時のタスクとコスト要件に合わせてSOTAモデルへ柔軟に切り替えられる「方舟のルーター」の実装。
+    - **Autonomous Memory & Reflection:** ChromaDBを活用し、Reflectorがタスクの成功・失敗から「教訓」を抽出し、次回以降のプロンプトに動的にRAG注入する自律学習サイクルの確立。
+- [ ] **Phase 16 (The Pharos - 独立品質監査APIと絶対防衛網):** 🌟 **PLANNED**
     - **Step 1: API Genesis (母艦による子システムの建造):** ARK自身に指示を出し、静的解析とLLMレビューを担う独立したFastAPIサーバー「The Pharos（仮）」の土台を自動構築させる。
     - **Step 2: Static Analysis Engine (基礎体力測定):** Pharos内に `flake8` や `ESLint` 等を組み込み、リポジトリURLを渡すだけで構文エラーや規約違反を検知する第一防衛ラインの構築。
     - **Step 3: AI Scoring Engine (多角的な品質採点):** 静的解析をパスしたコードに対し、特化型AIが「セキュリティ」「パフォーマンス」「保守性」などを100点満点でスコア化し、JSONで返すレビューエンジンの実装。
     - **Step 4: Hologram Integration (HUDへの光の投影):** Pharos APIが算出したスコアをARKのHUD（React）と連携させ、美しいレーダーチャートや品質レポートとしてリアルタイムに可視化する機能。
-- [ ] **Phase 16 (Overdrive Protocol - 完全自律・夜間航行):** 🌟 **PLANNED**
-    - **Overdrive Command:** 人間の承認プロセスを完全にスキップし、朝まで自律的にタスクを連続消化する限界突破モード。
+- [ ] **Phase 17 (Overdrive Protocol - 完全自律・夜間航行):** 🌟 **PLANNED**
+    - **Overdrive Command:** 人間の承認プロセスを完全にスキップし、Phase 15で得た「記憶」とPhase 16の「Pharos品質監査」を頼りに、朝まで自律的にタスクを連続消化する限界突破モード。
     - **Circuit Breaker:** APIコスト上限やエラーループ回数を検知し、予算超過や暴走を未然に防ぐ安全装置。
     - **SOS Flare:** 解決不可能な致命的状態に陥った際、Slackへログ付きのSOS通知を送信し人間に助けを求める機能。
-- [ ] **Phase 17 (The Mirage Dock - プレビュー環境の自動構築):** 🌟 **PLANNED**
-    - **Auto-Preview Deployment:** PR作成と同時にVercelやCloud Runへ一時的なプレビュー環境をデプロイし、Slackへ動作確認URLを直接通知する機能。
 - [ ] **Phase 18 (The Grand Admiral - チケット駆動開発とEpic分割):** 🌟 **PLANNED**
     - **Issue-Driven Pipeline:** GitHub Issues等と連動。巨大なEpicを自律的に複数のタスク（DB設計、API実装等）に分割し、Issueの起票から実装までを全自動化。
-- [ ] **Phase 19 (Deep Ocean Navigation - 全域ソナーと並行協調):** 🌟 **PLANNED**
-    - **Semantic Sonar:** ChromaDBで巨大なレガシープロジェクト全域をベクトル化し、関連箇所を自律検索・理解するRAGレーダー。
-    - **The Harmonizer:** 開発中の人間によるコード変更（コンフリクト）を検知し、自律的な `git rebase` と賢い修正で安全に合流（マージ）する協調プロトコル。
-
+- [ ] **Phase 19 (The Mirage Dock - プレビュー環境の自動構築):** 🌟 **PLANNED**
+    - **Auto-Preview Deployment:** PR作成と同時にVercelやCloud Runへ一時的なプレビュー環境をデプロイし、Slackへ動作確認URLを直接通知する機能。
+    
 > **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
 
 ---

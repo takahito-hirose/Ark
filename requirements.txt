@@ -8,3 +8,5 @@ python-dotenv>=1.2.2
 PyYAML>=6.0.3
 requests>=2.33.0
 uvicorn[standard]>=0.42.0
+slack-bolt>=1.18.0
+slack-sdk>=3.27.0
