@@ -1,14 +1,15 @@
 """
 ARK — Reflector Agent (SYLPH)
 =============================
+Phase 15: Domain-Driven Edition
 振り返りフェーズと、記憶のガベージコレクション（大掃除）を担当するエージェント。
+※プロンプトのコア（分析手法とTOOL_CALL形式）は Skills.md に移譲されました！
 
 責務
 ----
-- 完了したミッション（Goal）と最終的なコード（CodePayload）を分析する。
-- 記憶ツールを自律的に使用し、将来の航海に役立つ知見やコアルールを永続化する。
-- 🧹 [NEW] 乱雑になった記憶を読み込み、自律的に整理整頓（GC）を行う司書モード💋
-- 🧠 [NEW] 苦労の履歴（attempt_history）と失敗フラグ（is_failure）から、アンチパターンを学習する！
+- 完了したミッションとコードを分析し、TOOL_CALLを発行して記憶を永続化する。
+- 🧹 乱雑になった記憶を読み込み、自律的に整理整頓（GC）を行う司書モード💋
+- 🧠 苦労の履歴と失敗フラグから、アンチパターン（地雷マップ）を学習する！
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, Dict
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_reflector_prompt, build_gc_prompt # 🌟 プロンプト工場から取得！
-from src.core.models import CodePayload, PlanPayload, ExecutionAttempt # 🌟 ExecutionAttempt を追加！
+# 🌟 旧: from src.core.agents import build_reflector_prompt, build_gc_prompt (完全パージ！)
+from src.core.models import CodePayload, PlanPayload, ExecutionAttempt
 
 if TYPE_CHECKING:
     from src.core.providers import BaseProvider
@@ -51,12 +52,11 @@ class ReflectorAgent(BaseAgent):
         self, 
         plan: PlanPayload, 
         code: CodePayload, 
-        attempt_history: list[ExecutionAttempt] | None = None, # 🌟 Orchestratorから苦労履歴を受け取る！
-        is_failure: bool = False # 🌟 Orchestratorから致命的敗北フラグを受け取る！
+        attempt_history: list[ExecutionAttempt] | None = None,
+        is_failure: bool = False
     ) -> None:
         """ゴールとコード、そして苦労の軌跡を分析し、記憶ツールを実行する。"""
         
-        # モードに応じたログの切り替え
         if is_failure:
             log.warning("⚠️ [Reflector] 致命的な敗北を検知！アンチパターンの抽出と地雷マップの作成に移行します💋")
         else:
@@ -64,15 +64,7 @@ class ReflectorAgent(BaseAgent):
 
         search_results = getattr(plan, "search_results", "")
         files = [fc.path for fc in code.files]
-        
-        parts = []
-        for fc in code.files:
-            parts.append(f"### File: {fc.path}\n```python\n{fc.content}\n```")
-        code_summary = "\n\n".join(parts) if parts else "(no files)"
 
-        # =========================================================================
-        # 🌟 [PHASE 10-3 STEP 1] 苦労履歴のフォーマット化 💋
-        # =========================================================================
         history_str = ""
         if attempt_history:
             log.info(f"🧠 [Reflector] {len(attempt_history)}回のトライ＆エラー履歴を分析対象に追加します。")
@@ -85,19 +77,35 @@ class ReflectorAgent(BaseAgent):
                 history_str = "No specific error logs, but the mission failed fundamentally. (Logic/Review Error)"
             else:
                 history_str = "No execution errors. The plan succeeded on the first try. Perfect!💋"
-        # =========================================================================
 
-        # 🌟 プロンプト工場に history_str と is_failure フラグを渡す！
-        prompt = build_reflector_prompt(
-            goal=plan.goal,
-            files=files,
-            code_summary=code_summary,
-            search_results=search_results,
-            attempt_history_str=history_str,
-            is_failure=is_failure # 👈 ここが追加ポイントよ💋
-        )
+        # 🌟 Phase 15: 動的コンテキストの構築 (Skills.mdと合体して最強の分析を行うよ！)
+        search_hint = f"\n## New Insights (Research Data)\n{search_results}\nArchive any new specifications or differences found." if search_results else ""
+        history_hint = f"\n## Trial & Error History\n{history_str}\nAnalyze this history to extract 'Failure Patterns' and their 'Success Snippets'." if history_str else ""
         
-        response = self._call_llm(prompt)
+        failure_directive = ""
+        if is_failure:
+            failure_directive = """
+            ## 🚨 CRITICAL FAILURE ANALYSIS MODE 🚨
+            The mission ultimately FAILED after maximum retries. 
+            Your primary objective is NO LONGER to extract success stories, but to deeply analyze WHY the process failed and to map out the "Anti-Patterns" (Landmines).
+            - What logic was fundamentally flawed?
+            - What repeating errors occurred during the attempt history?
+            - Extract these fatal mistakes and formulate clear "Avoidance Rules" (Negative Knowledge) to prevent future agents from making the same errors.
+            """
+
+        dynamic_context = f"""
+        {failure_directive}
+
+        ## Extraction Targets
+        {search_hint}
+        {history_hint}
+
+        ## Mission Data
+        Goal: {plan.goal}
+        Modified Files: {", ".join(files)}
+        """
+        
+        response = self._call_llm(dynamic_context)
         self._handle_tool_calls(response)
 
     def _handle_tool_calls(self, response: str) -> None:
@@ -106,6 +114,8 @@ class ReflectorAgent(BaseAgent):
         for line in response.split("\n"):
             line = line.strip()
             
+            # Skills.mdで <analysis> タグを使わせているけど、
+            # 行単位の prefix チェックだから全く壊れず安全に抽出できるわ！
             if line.startswith("TOOL_CALL: archive_experience"):
                 parts = line.split("|", 1)
                 if len(parts) == 2:
@@ -146,10 +156,24 @@ class ReflectorAgent(BaseAgent):
         """
         log.info("🧹 [Reflector] 司書モード起動！記憶の整理整頓を開始します...")
 
-        gc_prompt = build_gc_prompt(current_memory_dump)
+        # 🌟 Phase 15: Skills.md の出力を上書き（Override）する司書用プロンプト！
+        gc_prompt = f"""
+        【⚠️ IMPORTANT OVERRIDE】
+        This is a special sub-task (Garbage Collection). IGNORE your standard output format (TOOL_CALLs, etc.).
+        Analyze the provided "Current Memory Dump" and reconstruct it following these rules:
+
+        ## Reorganization Rules
+        1. Deduplication: Merge similar rules or experiences.
+        2. Conflict Resolution: If old and new information conflict, keep the most recent or generic one.
+        3. Clean Up: Remove meaningless placeholder data (e.g., "rule_name", "experience_summary").
+        4. Output Format: Output ONLY a valid JSON string. Do not include markdown code blocks like ```json.
+
+        ## Current Memory Dump
+        {current_memory_dump}
+        """
+
         response = self._call_llm(gc_prompt)
         
-        # 🛡️ LLMがおしゃべりしても大丈夫！最初にある `{` から最後の `}` までを撃ち抜くわ💋
         try:
             start_idx = response.find('{')
             end_idx = response.rfind('}')
@@ -157,10 +181,7 @@ class ReflectorAgent(BaseAgent):
             if start_idx == -1 or end_idx == -1 or start_idx > end_idx:
                 raise ValueError("JSONブロックが見つかりませんでした。")
                 
-            # JSON部分だけをスナイプ！
             json_str = response[start_idx:end_idx + 1]
-            
-            # 整理された結果をパース
             cleaned_data = json.loads(json_str)
             log.info("✅ [Reflector] 記憶の再構築（パース）に成功しました！")
             return cleaned_data

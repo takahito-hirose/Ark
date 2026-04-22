@@ -1,16 +1,11 @@
 """
 ARK — Architect Agent (SYLPH)
 ==============================
-Phase 11: The Eternal Helmsman Update
+Phase 15: Domain-Driven Edition
 設計フェーズを担当するエージェント。
 外界の知識を覗き込む「望遠鏡（Telescope）」を装備し、
 得られた知見をパーティ全員に共有する「神経系の中枢」よ💋
-
-責務
-----
-- ユーザーのゴールを分析し、 PlanPayload と SubTaskリスト（WBS） を生成する。
-- 既存プロジェクトのコンテキスト収集に加え、未知の技術に対する自律的な Web リサーチを行う。
-- 獲得した最新の知見（search_results）を Payload に格納し、全エージェントに同期する。💋
+※プロンプトのコアは Skills.md に移譲されました！
 """
 
 from __future__ import annotations
@@ -22,8 +17,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_architect_prompt, get_file_tree
-# 🌟 NEW: SubTask をインポートに追加！
+# 🌟 旧プロンプトビルダーは削除！ get_file_tree だけ残す！
+from src.core.agents import get_file_tree
 from src.core.models import PlanPayload, SubTask, TaskStatus
 from src.tools.ast_analyzer import generate_code_outline
 from src.tools.telescope import WebTelescope
@@ -84,9 +79,24 @@ class ArchitectAgent(BaseAgent):
         if external_knowledge:
             enhanced_goal += f"\n\n【🔭 望遠鏡で獲得した最新の知識】\n{external_knowledge}\n"
 
-        # 5. 設計図をプロンプトに渡してLLMを呼び出す
-        prompt = build_architect_prompt(enhanced_goal, self._workspace_path, blueprints=blueprints)
-        response = self._call_llm(prompt)
+        # 🌟 5. Phase 15: 動的コンテキストの構築 (Skills.mdはBaseAgentが結合してくれる)
+        new_project_hint = ""
+        if "- " not in tree:
+            new_project_hint = "\n[Notice] Workspace is currently empty. Determine appropriate file names for the new project.\n"
+
+        dynamic_context = f"""
+        {new_project_hint}
+        ## Workspace State
+        {tree}
+
+        ## Project Blueprints (AST Outlines)
+        {blueprints}
+
+        ## Goal
+        {enhanced_goal}
+        """
+
+        response = self._call_llm(dynamic_context)
         
         # 6. レスポンスをパースしてPayloadを作成
         return self._parse_response(
@@ -100,8 +110,8 @@ class ArchitectAgent(BaseAgent):
         """現在の状態から次の開発フェーズを提案する"""
         
         prompt = (
-            "あなたは優秀なソフトウェアアーキテクトです。\n"
-            "最終目標と現在のワークスペースの状態を比較し、次に着手すべき論理的な開発フェーズを提案してください。\n"
+            "【⚠️ IMPORTANT OVERRIDE】\n"
+            "This is a special sub-task. IGNORE your standard output format (TARGET_FILES, TASKS, etc.).\n"
             "出力は必ず以下のキーを持つJSON形式のみとしてください:\n"
             "- next_goal: 次の目標（文字列）\n"
             "- expected_artifacts: 変更・作成が予想されるファイルのリスト（文字列の配列）\n"
@@ -112,11 +122,9 @@ class ArchitectAgent(BaseAgent):
         )
         
         log.info("🔭 [Architect] 次の航路を計算中...")
-        
         response_text = self._call_llm(prompt)
         
         try:
-            # Markdownのコードブロック修飾などを取り除く安全策
             cleaned_text = response_text.strip()
             if cleaned_text.startswith("```json"):
                 cleaned_text = cleaned_text[7:]
@@ -142,7 +150,8 @@ class ArchitectAgent(BaseAgent):
 
     def _research_external_knowledge(self, goal: str) -> str:
         research_prompt = (
-            "あなたはARKのArchitectです。\n"
+            "【⚠️ IMPORTANT OVERRIDE】\n"
+            "This is a special sub-task. IGNORE your standard output format (TARGET_FILES, TASKS, etc.).\n"
             "以下のゴールを達成するために、あなたが知らない最新のライブラリや技術スタックの使い方が必要ですか？\n\n"
             f"【ゴール】\n{goal}\n\n"
             "【指示】\n"
@@ -192,7 +201,8 @@ class ArchitectAgent(BaseAgent):
 
     def _investigate_project(self, goal: str, tree: str) -> str:
         investigation_prompt = (
-            "あなたはARKのArchitectです。\n"
+            "【⚠️ IMPORTANT OVERRIDE】\n"
+            "This is a special sub-task. IGNORE your standard output format (TARGET_FILES, TASKS, etc.).\n"
             "既存のプロジェクトを改修するために、事前にどのファイルの中身を確認すべきか判断してください。\n\n"
             f"【ゴール】\n{goal}\n\n"
             f"【プロジェクト構造】\n```\n{tree}\n```\n\n"
@@ -295,6 +305,7 @@ class ArchitectAgent(BaseAgent):
     @staticmethod
     def _extract_list(text: str, key: str, default: list[str] = None) -> list[str]:
         if default is None: default = []
+        # 改行があってもマッチするように行単位で抽出
         match = re.search(rf"^{key}\s*:\s*(.+)$", text, re.M | re.I)
         if not match: return default
         items = [i.strip().replace("`", "") for i in match.group(1).split(",") if i.strip()]

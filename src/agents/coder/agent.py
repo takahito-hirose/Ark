@@ -1,9 +1,11 @@
 """
 ARK — Coder Agent (SYLPH)
 ==========================
+Phase 15: Domain-Driven Edition
 実装フェーズを担当するエージェント。解析能力を極限まで高め、
 Telescopeの検索結果（神経系）を完全に同期した強化版よ💋
-SEARCH/REPLACE パッチの検出能力を極限まで高めた外科医仕様よ！
+※プロンプトのコアは Skills.md に移譲されました！
+※Laziness（手抜き）を絶対許さないフルコード出力仕様！
 """
 
 from __future__ import annotations
@@ -15,8 +17,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Callable
 
 from src.agents.base_agent import BaseAgent
-# 🌟 中央のプロンプト工場から、最強の指示書ビルダーをインポート！
-from src.core.agents import build_coder_prompt, build_remediation_prompt
 from src.core.models import CodePayload, FileAction, FileChange
 
 if TYPE_CHECKING:
@@ -34,80 +34,95 @@ class CoderAgent(BaseAgent):
         workspace_path: Path | None = None,
         on_token_usage: Optional[Callable[[int], None]] = None
     ) -> None:
+        # BaseAgentがここで src/agents/coder/Skills.md をロードするよ！
         super().__init__(provider, role="coder", workspace_path=workspace_path, on_token_usage=on_token_usage)
-        self.workspace_path = workspace_path
 
     def code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
         """プランに基づきコードを生成する。"""
         log.info("[Coder] Generating code (attempt %d) for: %s", retry + 1, plan.target_files)
 
-        # 🌟 PlanPayload に格納されている検索結果を安全に取り出す
         search_results = getattr(plan, "search_results", "")
+        constraints = getattr(plan, "constraints", [])
+        constraints_text = "\n".join([f"- {c}" for c in constraints]) if constraints else "None"
 
-        # 🌟 直書きプロンプトを廃止し、中央工場から生成！
-        prompt = build_coder_prompt(
-            goal=plan.goal,
-            target_files=plan.target_files,
-            constraints=plan.constraints if hasattr(plan, "constraints") else [],
-            acceptance=plan.acceptance_criteria if hasattr(plan, "acceptance_criteria") else [],
-            retry=retry,
-            workspace_path=self.workspace_path,
-            reviewer_feedback=reviewer_feedback,
-            search_results=search_results  # 🔭 ここで最新の検索知識を注入！
-        )
+        # 🌟 既存ファイルの現在の中身を読み込む
+        context = ""
+        unique_targets = list(dict.fromkeys(plan.target_files))
+        for target in unique_targets:
+            target_path = self._workspace_path / Path(target).name if self._workspace_path else Path(target).name
+            if target_path.exists():
+                try:
+                    content = target_path.read_text(encoding="utf-8")
+                    context += f"### File: {target_path.name} (Current Content)\n```python\n{content}\n```\n\n"
+                except Exception:
+                    context += f"### File: {target_path.name}\n(This is a new file to be created. It is currently EMPTY.)\n\n"
+            else:
+                context += f"### File: {target_path.name}\n(This is a new file to be created. It is currently EMPTY.)\n\n"
 
-        # 🌟 [CRITICAL FIX] Coderくんに「道具の調達」と「パッチ形式」を徹底させる！💋
-        prompt += (
-            "\n\n【⚠️重要・絶対遵守⚠️】\n"
-            "1. 外部ライブラリを使用する場合は、必ず `FILE: requirements.txt` を出力すること。\n"
-            "2. 既存ファイルの修正は、必ず `<<<< SEARCH`, `====`, `>>>> REPLACE` の形式で出力すること。\n"
-            "3. 実行時にユーザー入力を待つ `input()` は絶対に使用禁止。自動実行可能なコードにすること。"
-        )
+        # 🌟 動的コンテキストの構築
+        dynamic_context = f"""
+        ## Task Details
+        GOAL: {plan.goal}
+        CONSTRAINTS: {constraints_text}
 
-        response = self._call_llm(prompt)
+        ## Latest Research Data (Priority Knowledge)
+        {search_results}
+
+        ## Target Files Content
+        {context}
+
+        Attempt: {retry + 1}
+        ## Reviewer Feedback from previous failure:
+        {reviewer_feedback}
+
+        【⚠️重要・絶対遵守⚠️】
+        1. 外部ライブラリを使用する場合は、必ず `FILE: requirements.txt` を出力すること。
+        2. 実行時にユーザー入力を待つ `input()` は絶対に使用禁止。自動実行可能なコードにすること。
+        """
+
+        response = self._call_llm(dynamic_context)
         return self._parse_response(response, plan=plan, retry=retry)
 
     def remediate(self, plan: PlanPayload, retry: int, failure_reason: str, stacktrace: str, current_source: str, attempt_history: list[Any]) -> CodePayload:
         """実行エラー時の自己修復コードを生成する。"""
         log.info("[Coder] Self-healing initiated (attempt %d)...", retry + 1)
         
-        prompt = build_remediation_prompt(
-            goal=plan.goal,
-            target_files=plan.target_files,
-            retry=retry,
-            workspace_path=self.workspace_path,
-            failure_reason=failure_reason,
-            stacktrace=stacktrace,
-            current_source=current_source,
-            attempt_history=attempt_history
-        )
+        unique_targets = list(dict.fromkeys(plan.target_files)) if plan.target_files else ["unknown.py"]
+        targets_str = ", ".join(unique_targets)
 
-        # タイムアウト対策の念押し💋
+        # 🌟 動的コンテキストの構築（自己修復用）
+        dynamic_context = f"""
+        ## Error Remediation Task
+        The previous execution resulted in an error. Please fix the issue and output the ENTIRE corrected code.
+
+        GOAL: {plan.goal}
+        TARGET FILES: {targets_str}
+
+        [ERROR REASON]
+        {failure_reason}
+
+        [STACKTRACE]
+        {stacktrace}
+
+        ## Current Source Code
+        {current_source}
+        """
+
         if "Timeout" in failure_reason or "Timeout" in stacktrace:
-            prompt += "\n\n🚨 前回の実行はタイムアウトしたわ。無限ループや外部通信のハング、または input() の待ち状態がないか徹底的にチェックして修正して！"
+            dynamic_context += "\n\n🚨 前回の実行はタイムアウトしたわ。無限ループや外部通信のハング、または input() の待ち状態がないか徹底的にチェックして修正して！"
         
-        response = self._call_llm(prompt)
+        response = self._call_llm(dynamic_context)
         return self._parse_response(response, plan=plan, retry=retry)
 
     def _parse_response(self, response: str, *, plan: PlanPayload, retry: int) -> CodePayload:
         """
-        LLMレスポンスから執念深くコードとパッチを抽出するわよ💋
+        LLMレスポンスから執念深くコードを抽出するわよ💋
+        ※Phase 15: フルコード出力に特化し、SEARCH/REPLACEのパーサーを削除しました！
         """
         file_changes: list[FileChange] = []
+        updated_paths = set()
         
-        # 🌟 1. SEARCH/REPLACE パッチブロックの抽出を優先！
-        # ファイル名がブロックの外にある場合と、中にある場合両方に対応するわ💋
-        patch_pattern = r"(?:FILE|File|file|FilePath)[*:\s]*([^\n\s]+)\s*\n+.*?(<{3,}\s*SEARCH.*?>{3,}\s*REPLACE)"
-        patch_matches = re.findall(patch_pattern, response, re.DOTALL | re.IGNORECASE)
-
-        for raw_path, patch_body in patch_matches:
-            path = raw_path.strip().strip("`").strip("*").strip(":")
-            if path and patch_body:
-                file_changes.append(FileChange(path=path, action=FileAction.UPDATE, content=patch_body.strip()))
-                log.info("[Coder] Parsed patch (UPDATE): %s", path)
-
-        # 🌟 2. 通常の生成形式（FILE: path + コードブロック）
-        updated_paths = {fc.path for fc in file_changes}
+        # 🌟 1. FILE: path + コードブロック の抽出 (フルコード版)
         pattern = r"(?:FILE|File|file|FilePath)[*:\s]*([^\n\s]+)\s*\n+```[a-zA-Z0-9_-]*\n(.*?)```"
         matches = re.findall(pattern, response, re.DOTALL | re.IGNORECASE)
 
@@ -115,11 +130,11 @@ class CoderAgent(BaseAgent):
             path = raw_path.strip().strip("`").strip("*").strip(":")
             code = code_body.rstrip()
             if path and code and path not in updated_paths:
-                # ブロックの中に SEARCH が入っている場合も UPDATE として扱う
-                action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
-                file_changes.append(FileChange(path=path, action=action, content=code))
+                file_changes.append(FileChange(path=path, action=FileAction.UPDATE, content=code))
+                updated_paths.add(path)
+                log.info("[Coder] Parsed full code for: %s", path)
 
-        # 🌟 3. 【救済策・統合版】タグはないがコードブロックがある場合
+        # 🌟 2. 【救済策】タグはないがコードブロックがある場合
         if not file_changes:
             code_blocks = re.findall(r"```[a-zA-Z0-9_-]*\n(.*?)```", response, re.DOTALL)
             for i, block in enumerate(code_blocks):
@@ -127,6 +142,7 @@ class CoderAgent(BaseAgent):
                 if not code: continue
 
                 path = ""
+                # コードブロックの1行目がコメントでファイル名っぽい場合
                 first_line = code.split('\n')[0].strip()
                 if first_line.startswith(("#", "//")) and "." in first_line:
                     path = first_line.strip("#/ ").strip()
@@ -137,11 +153,12 @@ class CoderAgent(BaseAgent):
                 if not path and ("==" in code or "ascii-magic" in code.lower()):
                     path = "requirements.txt"
 
-                if path:
-                    action = FileAction.UPDATE if "<<<<<<< SEARCH" in code else FileAction.CREATE
-                    file_changes.append(FileChange(path=path, action=action, content=code))
+                if path and path not in updated_paths:
+                    file_changes.append(FileChange(path=path, action=FileAction.UPDATE, content=code))
+                    updated_paths.add(path)
+                    log.info("[Coder] Fallback parsed full code for: %s", path)
 
-        # 4. 最終フォールバック
+        # 🌟 3. 最終フォールバック
         if not file_changes:
             log.warning("[Coder] Parsing failed — using emergency fallback")
             target_path = plan.target_files[0] if plan.target_files else "main.py"
@@ -163,4 +180,4 @@ class CoderAgent(BaseAgent):
             if __name__ == "__main__":
                 print("解析に失敗したみたい。もう一度具体的な指示をちょうだい💋")
         """)
-        return FileChange(path=path, action=FileAction.CREATE, content=content)
+        return FileChange(path=path, action=FileAction.UPDATE, content=content)
