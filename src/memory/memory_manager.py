@@ -67,47 +67,52 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to save core rule: {e}")
 
-    def archive_experience(self, summary: str, source: str = "local_execution", trust_level: str = "verified"):
-        """Tier 3 (ChromaDB) に知見を保存（メタデータ付き）"""
+    def archive_experience(self, summary: str, source: str = "local_execution", trust_level: str = "verified", role: str = "general"):
+        """Tier 3 (ChromaDB) に知見を保存（ロールのメタデータ付き）💋"""
         if not self.collection:
             return
         
         try:
-            doc_id = f"mem_{int(time.time() * 1000)}" # 🌟 IDの衝突を防ぐためにミリ秒に変更
+            doc_id = f"mem_{int(time.time() * 1000)}"
             metadata = {
                 "source": source,
                 "trust_level": trust_level,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "role": role  # 🌟 NEW: 誰の記憶かをタグ付け！
             }
             self.collection.add(
                 documents=[summary],
                 metadatas=[metadata],
                 ids=[doc_id]
             )
-            logger.info(f"Experience archived [{doc_id}] (Source: {source}, Trust: {trust_level})")
+            logger.info(f"Experience archived [{doc_id}] (Role: {role}, Source: {source})")
         except Exception as e:
             logger.error(f"Failed to archive experience: {e}")
 
-    def recall_memory(self, query: str, n_results: int = 3) -> str:
-        """類似する過去の記憶を検索"""
+    def recall_memory(self, query: str, n_results: int = 3, role: Optional[str] = None) -> str:
+        """類似する過去の記憶を検索（ロールで絞り込み可能！）💋"""
         if not self.collection:
-            return "記憶システム（ChromaDB）が利用できません。"
+            return ""
             
         try:
+            # 🌟 NEW: role が指定されていれば、そのロールの記憶だけを Where 句で絞り込む！
+            where_clause = {"role": role} if role else None
+            
             results = self.collection.query(
                 query_texts=[query],
-                n_results=n_results
+                n_results=n_results,
+                where=where_clause
             )
             
             docs = results.get("documents", [[]])[0]
             if not docs:
-                return "関連する過去の記憶は見つかりませんでした。"
+                return "" # 見つからなかった時は空文字を返す（プロンプトを汚さないため）
             
             formatted = "\n".join([f"- {doc}" for doc in docs])
-            return f"\n### 🔍 過去の記録からの抜粋\n{formatted}\n"
+            return f"\n### 🧠 {role.capitalize() if role else 'General'} の過去の教訓（地雷マップ）\n{formatted}\n"
         except Exception as e:
             logger.error(f"Failed to recall memory: {e}")
-            return "記憶の検索中にエラーが発生しました。"
+            return ""
 
     def _get_collection(self):
         """ChromaDBのコレクション変数を安全に取得するヘルパーよ💋"""
@@ -243,16 +248,23 @@ class MemoryManager:
                     logger.info(f"🗑️ Tier 3: 既存の記憶 {len(existing['ids'])} 件を完全に焼却しました。")
 
                 # ✨ 整理された新しい記憶を注入
-                new_experiences = gc_data.get("experiences", [])
-                for exp in new_experiences:
+            new_experiences = gc_data.get("experiences", [])
+            for exp in new_experiences:
+                # 🌟 [Resilience Fix] 文字列が来ても辞書が来ても大丈夫なようにガードを入れるわ！
+                if isinstance(exp, str):
+                    summary = exp
+                    source = "gc_rebuild"
+                    trust_level = "verified"
+                else:
+                    # 辞書の場合は get で安全に取得
                     summary = exp.get("summary")
                     source = exp.get("source", "gc_rebuild")
                     trust_level = exp.get("trust_level", "verified")
-                    
-                    if summary:
-                        # 既存の archive_experience メソッドを再利用（少しディレイを入れてID衝突を防ぐ）
-                        self.archive_experience(summary, source, trust_level)
-                        time.sleep(0.01) # ミリ秒単位でも念のためID衝突防止💋
+                
+                if summary:
+                    # archive_experience を呼び出す（role 引数は Step 3 で追加したものね💋）
+                    self.archive_experience(summary, source, trust_level, role="general")
+                    time.sleep(0.01)
                         
                 logger.info(f"✅ Tier 3: {len(new_experiences)} 件の知見を再構築しました！")
 

@@ -1,7 +1,7 @@
 """
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
-Phase 13: Dynamic Worker Spawning (スリム化版)
+Phase 15: The Fleet Awakening (Step 3: Autonomous Memory)
 Orchestratorは全体の進行管理のみを行い、重い並行処理ロジックは
 ParallelTaskExecutor に移譲しています。
 """
@@ -39,13 +39,7 @@ from src.core.github_publisher import publish_to_github
 from src.core.command_interceptor import handle_special_commands
 from src.core.treasury import Treasury
 
-# 🌟 NEW: 外出ししたExecutorをインポート
-from src.core.executor import ParallelTaskExecutor, CircuitBreakerTripped
-
-# ❌ 削除: from src.core.agents import build_commit_msg_prompt
-# (Phase 15のスリム化で消え去ったからね！)
-
-# 🌟 NEW: 外出ししたExecutorをインポート
+# 🌟 外出ししたExecutorをインポート（重複インポートはお掃除したわ💋）
 from src.core.executor import ParallelTaskExecutor, CircuitBreakerTripped
 
 logging.basicConfig(
@@ -104,7 +98,6 @@ class Orchestrator:
         if self.on_status_change:
             self._state.set_callback(self.on_status_change)
             
-        # 🌟 並行処理時の状態更新保護用ロック
         self._state_lock = threading.Lock()
 
         os.environ["ARK_MOCK_MODE"] = "0"
@@ -119,6 +112,11 @@ class Orchestrator:
         self._agents = [self._architect, self._coder, self._reviewer, self._reflector]
         self._agent_names = ["Architect", "Coder", "Reviewer", "Reflector"]
         self.dock: Dock | None = None 
+
+        # 🌟 [Phase 15 Step 3] 艦隊全員の脳に「記憶の神経（MemoryManager）」を直接接続！
+        # 各エージェントの __init__ を書き換えて回るリスクを避けるため、ここで安全に注入（Dependency Injection）よ💋
+        for agent in self._agents:
+            agent._memory = self._memory
 
     def _broadcast_cost(self) -> None:
         if self.on_cost_update:
