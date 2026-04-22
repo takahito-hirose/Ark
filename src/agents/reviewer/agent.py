@@ -1,12 +1,13 @@
 """
 ARK — Reviewer Agent (SYLPH)
 =============================
-Phase 12: Hybrid Final Review (Quality & Integrity)
+Phase 15: Domain-Driven Edition
 レビューフェーズを担当するエージェント。
+※プロンプトのコア（人格と出力形式）は Skills.md に移譲されました！
 
 責務
 ----
-- :class:`~src.core.models.CodePayload` と :class:`~src.core.models.RunResult` を受け取る。
+- CodePayload と RunResult を受け取る。
 - 実行テスト(pytest)がPASSしている場合は、「テストの改ざんがないか」「コード品質は担保されているか」に特化した審査を行う。
 - テストがない場合、またはFAILの場合は、従来通りの厳格な全方位審査を行う。
 """
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from src.agents.base_agent import BaseAgent
-from src.core.agents import build_reviewer_prompt
+# 🌟 旧: from src.core.agents import build_reviewer_prompt (削除！)
 from src.core.models import (
     CodePayload,
     IssueSeverity,
@@ -65,7 +66,7 @@ class ReviewerAgent(BaseAgent):
         code_summary = self._build_code_summary(code)
         search_results = getattr(plan, "search_results", "") if plan else ""
 
-        # 🌟 STEP 2 (改良版): Hybrid Final Review
+        # 🌟 STEP 2: Hybrid Final Review の判定
         is_test_passed = False
         if run_result and run_result.success:
             # 構文チェックのみではない（実際にテストが実行された）か確認
@@ -74,9 +75,8 @@ class ReviewerAgent(BaseAgent):
 
         if is_test_passed:
             log.info("🤖 [Reviewer] 実行テスト(pytest)のPASSを確認。コード品質とテスト改ざんの監視モードへ移行します。")
-            # テスト通過時専用の審査基準を注入し、不要な機能的差し戻しを防ぎつつ品質を担保する
             review_criteria = (
-                "【特別審査モード】提出されたコードは既に単体テストをPASSしています。"
+                "【特別審査モード】提出されたコードは既に単体テストをPASSしています。\n"
                 "機能要件の不足を理由にFAILにしないでください。\n"
                 "あなたの役割は以下の2点のみです。問題がなければ必ずPASSとしてください：\n"
                 "1. テストの整合性: Coderがテストを無理やり通すために、テストコード自体を不適切に改ざん・削除していないか。\n"
@@ -84,17 +84,28 @@ class ReviewerAgent(BaseAgent):
             )
         else:
             log.warning("⚠️ [Reviewer] テスト未実施、またはFAILです。全方位の厳格な審査を実施します。")
-            review_criteria = plan.acceptance_criteria if plan else "型ヒント, docstring, ルールの遵守"
+            # planがなければデフォルトの厳しい基準を設定
+            base_acceptance = "\n".join([f"- {c}" for c in plan.acceptance_criteria]) if plan and hasattr(plan, "acceptance_criteria") else "型ヒント, docstring, ルールの遵守"
+            review_criteria = f"【厳格審査モード】\n{base_acceptance}"
 
-        prompt = build_reviewer_prompt(
-            goal=plan.goal if plan else "不明なゴール",
-            code_summary=code_summary,
-            acceptance=review_criteria,
-            retry=retry,
-            search_results=search_results
-        )
+        # 🌟 Phase 15: 動的コンテキストの構築 (Skills.mdのルールと合体するよ！)
+        search_hint = f"\n## Research Criteria\nEnsure the following information is reflected correctly:\n{search_results}" if search_results else ""
 
-        response = self._call_llm(prompt)
+        dynamic_context = f"""
+        ## Mission Goal
+        {plan.goal if plan else "不明なゴール"}
+
+        {search_hint}
+
+        ## Evaluation Criteria
+        {review_criteria}
+
+        ## Submitted Code
+        {code_summary}
+        """
+
+        # ベースエージェントが Skills.md + dynamic_context を合体させてLLMに投げる！
+        response = self._call_llm(dynamic_context)
         return self._parse_response(response, code=code, retry=retry)
 
     def _parse_response(
@@ -105,6 +116,8 @@ class ReviewerAgent(BaseAgent):
         retry: int,
     ) -> ReviewPayload:
         """LLMレスポンスから ReviewPayload を抽出する。"""
+        # Skills.mdで <code_review> タグを使わせるようにしたけど、
+        # この正規表現たちは文頭の `VERDICT:` などを探すから全く壊れないよ！💋
         verdict_str = self._extract_field(response, "VERDICT", "PASS").upper()
         score_str   = self._extract_field(response, "SCORE",   "0.9")
         summary     = self._extract_field(response, "SUMMARY", "Review completed.")

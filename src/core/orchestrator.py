@@ -5,7 +5,6 @@ Phase 13: Dynamic Worker Spawning (スリム化版)
 Orchestratorは全体の進行管理のみを行い、重い並行処理ロジックは
 ParallelTaskExecutor に移譲しています。
 """
-
 from __future__ import annotations
 
 import logging
@@ -30,17 +29,21 @@ from src.core.models import (
     ReviewStatus, RunResult, ExecutionAttempt,
     SubTask, TaskStatus
 )
-from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent
-from src.agents.reflector import ReflectorAgent
+from src.agents import ArchitectAgent, CoderAgent, ReviewerAgent, ReflectorAgent
 from src.core.config import ConfigLoader
 from src.core.factory import get_provider
-from src.core.agents import build_commit_msg_prompt
 
 # 外部委譲されたマネージャー群
 from src.core.dock_manager import setup_dock
 from src.core.github_publisher import publish_to_github
 from src.core.command_interceptor import handle_special_commands
 from src.core.treasury import Treasury
+
+# 🌟 NEW: 外出ししたExecutorをインポート
+from src.core.executor import ParallelTaskExecutor, CircuitBreakerTripped
+
+# ❌ 削除: from src.core.agents import build_commit_msg_prompt
+# (Phase 15のスリム化で消え去ったからね！)
 
 # 🌟 NEW: 外出ししたExecutorをインポート
 from src.core.executor import ParallelTaskExecutor, CircuitBreakerTripped
@@ -360,14 +363,30 @@ class Orchestrator:
         return self._reviewer.review(code, retry, plan=plan, run_result=run_result)
 
     def _phase_commit(self, modified_files: list[str], goal: str) -> list[Path]:
+        """
+        変更されたファイルをGitにコミットする最終フェーズだよ！
+        """
         if not self.dock: return []
         try:
-            prompt = build_commit_msg_prompt(goal, modified_files)
-            raw_msg = self._coder._call_llm(prompt).strip()
+            # 🌟 Phase 15: シンプルなインラインプロンプトに変更！
+            commit_prompt = (
+                f"Goal: {goal}\n"
+                f"Modified Files: {', '.join(modified_files)}\n"
+                f"Generate a single-line git commit message based on the above. "
+                f"Format: <type>: <description> (English). Output ONLY the message."
+            )
+            
+            raw_msg = self._coder._call_llm(commit_prompt).strip()
+            
+            # 余計なマークダウンや改行を削ぎ落とす！
             msg = raw_msg.replace("```plaintext", "").replace("```", "").strip().split("\n")[0]
+            
             self.dock.terminal.execute_command("git add .")
             self.dock.terminal.execute_command(f"git commit -m {shlex.quote(msg)}")
+            
+            log.info("📦 [Orchestrator] コードのコミットが完了したよ！バイブス最高！")
             return [self.dock.path / Path(f).name for f in modified_files]
+            
         except Exception as e:
-            log.warning("Commit failed: %s", e)
+            log.warning("⚠️ Commit failed: %s", e)
             return []
