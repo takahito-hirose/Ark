@@ -62,6 +62,10 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
 * **Real-time Sync:** 計算されたトークン消費量は、WebSocket経由（`TOKEN_USAGE` イベント）で瞬時にフロントエンドのHUDへ送信されます。
 * **Cost Estimation:** フロントエンドのストア（Zustand）にて、現在の市場相場（例: 100,000トークン = $1.00 等）を基にリアルタイムなコスト計算を行い、エージェントが思考するたびにチャリンと金貨を消費する様子を可視化します。
 
+### 9. 【絶対防衛網】The Pharos (Quality Audit System) 🗼
+* **Automated Code Audit:** ARK本体とは独立して稼働する品質監査API。ARKが生成したコードを5軸（Security, Performance, Maintainability, Resilience, Testability）で厳格に審査し、スコア化します。
+* **Infectious QA (自動配備プロトコル):** ARKが新造・編集した全てのリポジトリに対し、自動でGitHub Actionsのワークフローと必要なSecrets（APIキー）を配備。クラウド上でも人間/AIによるレビューを強制する鉄壁の防衛網を敷きます。
+
 ---
 
 ## 🎮 指揮官コマンド (Command Deck)
@@ -99,7 +103,7 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - **HUD Expansion:** 要件定義書などの巨大なテキストを直接ペーストできるよう、ミッション入力コンソールのUI領域を大容量化。
 - [x] **Phase 8 (The Deep Sea Trials):**
     - **Stress Testing:** 複雑で大規模な要件定義を実際に投入し、Architectのタスク分割能力、Coderの実装力、そしてシステム全体のエラー修復耐性（Auto-Bailing）を検証する耐久テスト航海。
-- [x] **Phase 9 (The Continuous Voyage - 1→100 Evolution):** 🚀 **COMPLETED**
+- [x] **Phase 9 (The Continuous Voyage - 1→100 Evolution):**
     - [x] **Existing Repo Ingestion:** 既存リポジトリをドックに読み込み、文脈を理解する機能。
     - [x] **Targeted Patching:** `SEARCH/REPLACE` による既存コードの精密修正能力。
     - [x] **Manual PR Link Generation:** Push完了後、比較用URLの自動生成。
@@ -113,36 +117,36 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Auto RAG Injection:** 記憶を計画段階で自動注入し、過去の失敗を未然に防ぐ「予見能力」の獲得。
     - [x] **Memory Garbage Collection:** Reflectorによる自律的な記憶の再構築・整理整頓機能の実装。
     - [ ] **Similarity Threshold Tuning:** ChromaDBの検索精度（コサイン類似度）の極限チューニング。
-- [x] **Phase 11 (The Universal Port & Seamless Voyage):** 🚀 **COMPLETED**
+- [x] **Phase 11 (The Universal Port & Seamless Voyage):**
     - **Continue Mode:** ミッション完了後の次なる航路の自律提案機能。
     - **Branch Inheritance:** 同一プロジェクト内でのブランチ引き継ぎと、リポジトリの継続開発プロトコルの確立。
-- [x] **Phase 12 (The Grand Fleet & TDD Pipeline):** 🚀 **COMPLETED**
+- [x] **Phase 12 (The Grand Fleet & TDD Pipeline):**
     - [x] **The Grand Fleet (並列航行):** Coderのマルチスレッド化。Architectの指示に基づき分身エージェントを動的召喚し、フロントとバックエンド等を同時並行で実装。
     - [x] **Merge Protocol:** 複数スレッドによる衝突を防ぐ、排他制御（Lock機構）と直列マージキューの導入。
     - [x] **Immutable TDD Pipeline:** Architectがテストを先行生成し、Reviewerが機械的にテストを実行して冷酷に合否を判定する「絶対防衛テスト網」の構築。
-- [x] **Phase 13 (ARK Remote Command):** 🚀 **COMPLETED**
+- [x] **Phase 13 (ARK Remote Command):**
     - [x] **Slack Bot（広報官）:** 外界からのプロンプトをキャッチし、SlackのBlock Kitを用いて承認や継続判断をインタラクティブに行う窓口の設置。
     - [x] **The Relay Server（次元の門）:** Socket Modeを採用し、ポート開放不要で自宅PCと外界を安全に繋ぐプル型通信の確立。
     - [x] **PR Notification Spy:** ターミナルログからPRのURLを自律検知し、Slackへ即座に任務完了報告を送信する監視網の実装。
-- [x] **Phase 13.5 (Interactive Model Selection):** 🚀 **COMPLETED**
+- [x] **Phase 13.5 (Interactive Model Selection):**
     - [x] **Dynamic Engine Fetcher:** 起動中のOllamaサーバーから利用可能なローカルモデル一覧をリアルタイムに取得。
     - [x] **UI/UX Sync:** SlackのドロップダウンUIと、HUD（React）のセレクトボックスに最新のモデルリストを完全同期。
     - [x] **Provider Routing:** `ollama|モデル名` や `gpt-4o` などの動的モデル指定を完璧に解釈し、APIをシームレスに切り替えるルーターの強化。
-- [x] **Phase 14 (The Fleet Expansion - Onboarding & Documentation):** 🚀 **COMPLETED**
+- [x] **Phase 14 (The Fleet Expansion - Onboarding & Documentation):**
     - [x] **Setup Guide:** 前提環境とローカルLLM（Ollama）のCORS回避設定を含む初期構築手順の策定。
     - [x] **Environment Security:** `factory.py` 等から環境変数を抽出し、APIキーの取得先と雛形をまとめた設定ガイドの作成。
     - [x] **Slack Integration Guide:** Socket Modeのアーキテクチャ解説と、Bot作成・権限設定の完全チュートリアル構築。
     - [x] **Web Telescope Setup:** Brave Search APIの取得手順と、無料枠で稼働する安全設計（モックモード含む）の明文化。
     - [x] **GitHub Genesis Engine:** 自動リポジトリ生成・PushのためのPAT取得手順と、認証バイパスの仕組みのドキュメント化。
-- [ ] **Phase 15 (The Fleet Awakening - 艦隊の覚醒と記憶の獲得):** 🌟 **PLANNED**
-    - **Domain-Driven Agent Structure:** 各エージェントを独立したディレクトリに分離し、`Skills.md` で個別のプロンプト（人格とスキル）を外出しで管理する高凝集・低結合な構成へのリファクタリング。
-    - **Ark Model Router:** `LiteLLM` を導入し、OpenAI、Anthropic、Ollama(Local)など、その時のタスクとコスト要件に合わせてSOTAモデルへ柔軟に切り替えられる「方舟のルーター」の実装。
-    - **Autonomous Memory & Reflection:** ChromaDBを活用し、Reflectorがタスクの成功・失敗から「教訓」を抽出し、次回以降のプロンプトに動的にRAG注入する自律学習サイクルの確立。
-- [ ] **Phase 16 (The Pharos - 独立品質監査APIと絶対防衛網):** 🌟 **PLANNED**
-    - **Step 1: API Genesis (母艦による子システムの建造):** ARK自身に指示を出し、静的解析とLLMレビューを担う独立したFastAPIサーバー「The Pharos（仮）」の土台を自動構築させる。
-    - **Step 2: Static Analysis Engine (基礎体力測定):** Pharos内に `flake8` や `ESLint` 等を組み込み、リポジトリURLを渡すだけで構文エラーや規約違反を検知する第一防衛ラインの構築。
-    - **Step 3: AI Scoring Engine (多角的な品質採点):** 静的解析をパスしたコードに対し、特化型AIが「セキュリティ」「パフォーマンス」「保守性」などを100点満点でスコア化し、JSONで返すレビューエンジンの実装。
-    - **Step 4: Hologram Integration (HUDへの光の投影):** Pharos APIが算出したスコアをARKのHUD（React）と連携させ、美しいレーダーチャートや品質レポートとしてリアルタイムに可視化する機能。
+- [x] **Phase 15 (The Fleet Awakening - 艦隊の覚醒と記憶の獲得):** 🚀 **COMPLETED**
+    - [x] **Domain-Driven Agent Structure:** 各エージェントを独立したディレクトリに分離し、`Skills.md` で個別のプロンプト（人格とスキル）を外出しで管理する高凝集・低結合な構成へのリファクタリング。
+    - [x] **Ark Model Router:** `LiteLLM` を導入し、OpenAI、Anthropic、Ollama(Local)など、その時のタスクとコスト要件に合わせてSOTAモデルへ柔軟に切り替えられる「方舟のルーター」の実装。
+    - [x] **Autonomous Memory & Reflection:** ChromaDBを活用し、Reflectorがタスクの成功・失敗から「教訓」を抽出し、次回以降のプロンプトに動的にRAG注入する自律学習サイクルの確立。
+- [x] **Phase 16 (The Pharos - 独立品質監査APIと絶対防衛網):** 🚀 **COMPLETED**
+    - [x] **Step 1: API Genesis (母艦による子システムの建造):** ARK自身に指示を出し、静的解析とLLMレビューを担う独立したFastAPIサーバー「The Pharos」の土台を自動構築。
+    - [x] **Step 2: Static Analysis Engine (基礎体力測定):** Pharos内に `flake8` 等を組み込み、構文エラーや規約違反を高速検知する第一防衛ラインの構築。
+    - [x] **Step 3: AI Scoring Engine (多角的な品質採点):** 特化型AIが「セキュリティ」「パフォーマンス」「保守性」「回復力」「テスト容易性」の5軸でコードを100点満点でスコア化し、Reviewerの判定基準とする機能。
+    - [x] **Step 4: Infectious QA (The Pharos 自動配備プロトコル):** ARKが触れる全リポジトリに対し、GitHub ActionsとしてのPharos（YAML設定）と必要なSecrets（APIキー）を自律的に配備し、クラウド上でも品質を担保する最終防衛網の確立。
 - [ ] **Phase 17 (Overdrive Protocol - 完全自律・夜間航行):** 🌟 **PLANNED**
     - **Overdrive Command:** 人間の承認プロセスを完全にスキップし、Phase 15で得た「記憶」とPhase 16の「Pharos品質監査」を頼りに、朝まで自律的にタスクを連続消化する限界突破モード。
     - **Circuit Breaker:** APIコスト上限やエラーループ回数を検知し、予算超過や暴走を未然に防ぐ安全装置。
@@ -152,12 +156,12 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
 - [ ] **Phase 19 (The Mirage Dock - プレビュー環境の自動構築):** 🌟 **PLANNED**
     - **Auto-Preview Deployment:** PR作成と同時にVercelやCloud Runへ一時的なプレビュー環境をデプロイし、Slackへ動作確認URLを直接通知する機能。
     
-> **MISSION STATUS: PHASE 8 COMPLETE. ALL SYSTEMS SECURED. ⚓️**
+> **MISSION STATUS: PHASE 16 COMPLETE. THE PHAROS IS WATCHING. 🗼**
 
 ---
 ## 🛠️ 事前準備 (Environment Setup)
 
-ARKを初めて起動する際、または環境を最新に保つために、必要な資材（パッケージ）のインストールを行います。ß
+ARKを初めて起動する際、または環境を最新に保つために、必要な資材（パッケージ）のインストールを行います。
 特にナビゲーションの中核となる `litellm` は更新頻度が非常に高いため、定期的なアップグレードを推奨します。
 
 ### Windows環境の場合 (PowerShell / Command Prompt)
@@ -174,7 +178,7 @@ python -m pip install --upgrade litellm
 ```
 
 ### Mac / Linux環境の場合 (Terminal)
-```powershell
+```bash
 # 1. 依存パッケージの一括インストール
 python3 -m pip install -r requirements.txt
 
@@ -190,7 +194,7 @@ ARKの開発・運用に参加される方は、まず以下のドキュメン�
 2. [環境変数とAPI設定](docs/02_API_AND_ENV.md) （必須APIキーの登録）
 3. [Slack連携手順](docs/03_SLACK_INTEGRATION.md) （コマンド受付インターフェースの構築）
 4. [Telescopeセットアップ](docs/04_TELESCOPE_SETUP.md) （自律Web検索機能の有効化）
-5. [GitHubセットアップ](docs/05_GITHUB_SETUP.md) （リモートリポジトリ連携と自動Push機能の有効化）
+5. [GitHubセットアップ](docs/05_GITHUB_SETUP.md) （リモートリポジトリ連携と自動Push、The Pharos配備機能の有効化）
 
 
 ## ⚓️ 起動シークエンス (How to Run ARK)
