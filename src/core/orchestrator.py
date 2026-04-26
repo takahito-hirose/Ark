@@ -2,8 +2,9 @@
 ARK (Autonomous Resilient Kernel) — Core Orchestrator
 =======================================================================
 Phase 15: The Fleet Awakening (Step 3: Autonomous Memory)
+Phase 16: The Pharos (Step 4: Gatekeeper Integration) 🗼 <- Refactored!
 Orchestratorは全体の進行管理のみを行い、重い並行処理ロジックは
-ParallelTaskExecutor に移譲しています。
+ParallelTaskExecutor に、門番ロジックは PharosGatekeeper に移譲しています。
 """
 from __future__ import annotations
 
@@ -18,6 +19,9 @@ import threading
 from pathlib import Path
 from typing import Final, Callable, Protocol, Any
 from dotenv import load_dotenv
+
+# 🌟 Phase 16: The Pharos 門番（Gatekeeper）クラスをインポート
+from src.core.pharos_gatekeeper import PharosGatekeeper
 
 # 記憶システムとツールのインポート
 from src.memory import MemoryManager
@@ -39,7 +43,7 @@ from src.core.github_publisher import publish_to_github
 from src.core.command_interceptor import handle_special_commands
 from src.core.treasury import Treasury
 
-# 🌟 外出ししたExecutorをインポート（重複インポートはお掃除したわ💋）
+# 🌟 外出ししたExecutorをインポート
 from src.core.executor import ParallelTaskExecutor, CircuitBreakerTripped
 
 logging.basicConfig(
@@ -113,10 +117,11 @@ class Orchestrator:
         self._agent_names = ["Architect", "Coder", "Reviewer", "Reflector"]
         self.dock: Dock | None = None 
 
-        # 🌟 [Phase 15 Step 3] 艦隊全員の脳に「記憶の神経（MemoryManager）」を直接接続！
-        # 各エージェントの __init__ を書き換えて回るリスクを避けるため、ここで安全に注入（Dependency Injection）よ💋
         for agent in self._agents:
             agent._memory = self._memory
+
+        # 🌟 ここで The Pharos の門番を配備！
+        self._gatekeeper = PharosGatekeeper(max_retries=MAX_RETRIES)
 
     def _broadcast_cost(self) -> None:
         if self.on_cost_update:
@@ -212,7 +217,6 @@ class Orchestrator:
             task_artifacts: dict[str, list[str]] = {}
             original_goal = plan.goal
 
-            # 🌟 並行実行エンジンの始動 (Executorへ委譲)
             log.info("🚀 [Orchestrator] Dynamic Worker Spawning (大艦隊の並列召喚) を開始します")
             
             executor = ParallelTaskExecutor(
@@ -237,7 +241,6 @@ class Orchestrator:
                 loop = None
 
             if loop and loop.is_running():
-                # イベントループがすでに回っている環境（FastAPI等）への安全策
                 exc_info = []
                 def run_loop_in_thread():
                     try:
@@ -326,7 +329,6 @@ class Orchestrator:
     def _phase_run(self, code: CodePayload) -> RunResult:
         if not self.dock: return RunResult(exit_code=-1, stdout="", stderr="No Dock", duration=0)
         try:
-            # TODO: Step 4 に向けて、ここでの書き込みの競合解決（The Merge Protocol）が必要になります
             self.dock.write_artifacts(code.files)
         except Exception as e:
             return RunResult(exit_code=1, stdout="", stderr=f"Dock write error: {e}", duration=0)
@@ -358,7 +360,23 @@ class Orchestrator:
         return RunResult(exit_code=0, stdout="Syntax check passed. (Waiting for unit tests for full validation)", stderr="", duration=0)
     
     def _phase_review(self, code: CodePayload, retry: int, plan: PlanPayload, run_result: RunResult | None = None) -> ReviewPayload:
-        return self._reviewer.review(code, retry, plan=plan, run_result=run_result)
+        """
+        [Phase 16 Step 4] The Gatekeeper (絶対防衛網)
+        実際の監査ロジックは PharosGatekeeper に委譲。
+        """
+        if not self.dock:
+            return self._reviewer.review(code, retry, plan=plan, run_result=run_result)
+
+        def reviewer_callback() -> ReviewPayload:
+            return self._reviewer.review(code, retry, plan=plan, run_result=run_result)
+
+        # 門番（Gatekeeper）に全てを託す
+        return self._gatekeeper.audit_and_review(
+            code=code,
+            retry=retry,
+            dock_path=self.dock.path,
+            reviewer_callback=reviewer_callback
+        )
 
     def _phase_commit(self, modified_files: list[str], goal: str) -> list[Path]:
         """
@@ -366,7 +384,6 @@ class Orchestrator:
         """
         if not self.dock: return []
         try:
-            # 🌟 Phase 15: シンプルなインラインプロンプトに変更！
             commit_prompt = (
                 f"Goal: {goal}\n"
                 f"Modified Files: {', '.join(modified_files)}\n"
@@ -376,7 +393,6 @@ class Orchestrator:
             
             raw_msg = self._coder._call_llm(commit_prompt).strip()
             
-            # 余計なマークダウンや改行を削ぎ落とす！
             msg = raw_msg.replace("```plaintext", "").replace("```", "").strip().split("\n")[0]
             
             self.dock.terminal.execute_command("git add .")

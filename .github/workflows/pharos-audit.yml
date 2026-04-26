@@ -1,0 +1,24 @@
+name: 🗼 The Pharos Code Audit
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: 🚢 Checkout Repository
+        uses: actions/checkout@v4
+        
+      # 🌟 ここが魔法の1行！
+      - name: 🗼 Run The Pharos Audit
+        uses: takahito-hirose/The-Pharos@main
+        with:
+          # 👇 ARKの「GOOGLE_API_KEY」を、Pharosの「gemini_api_key」の穴に差し込む！
+          gemini_api_key: ${{ secrets.GOOGLE_API_KEY }} 
+          github_token: ${{ secrets.GITHUB_TOKEN }}
