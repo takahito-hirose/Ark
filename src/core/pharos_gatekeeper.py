@@ -132,7 +132,7 @@ class PharosGatekeeper:
                 "\n\n".join(failed_issues)
             )
             return ReviewPayload(
-                status=ReviewStatus.REJECTED,
+                status=ReviewStatus.FAIL, # 🟢 ここを FAIL に直す！
                 feedback=feedback,
                 approved_files=[]
             )
