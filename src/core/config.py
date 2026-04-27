@@ -100,13 +100,13 @@ if _PYDANTIC_SETTINGS_AVAILABLE:
 
         # --- Gemini 設定 ---
         gemini_api_key: str = ""
-        gemini_model_name: str = "gemini-3-flash"
+        gemini_model_name: str = "gemini-2.5-flash"
         
         # ロールごとのGeminiモデル指定
-        architect_model_gemini: str = "gemini-3-flash"
-        coder_model_gemini: str = "gemini-3-flash"
-        reviewer_model_gemini: str = "gemini-3-flash"
-        reflector_model_gemini: str = "gemini-3-flash"
+        architect_model_gemini: str = "gemini-2.5-flash"
+        coder_model_gemini: str = "gemini-2.5-flash"
+        reviewer_model_gemini: str = "gemini-2.5-flash"
+        reflector_model_gemini: str = "gemini-2.5-flash"
 
         @field_validator("workspace_path", mode="before")
         @classmethod
@@ -180,11 +180,11 @@ else:  # pragma: no cover
         reflector_model: str = "llama3.2:3b"
 
         gemini_api_key: str = ""
-        gemini_model_name: str = "gemini-3-flash"
-        architect_model_gemini: str = "gemini-3-flash"
-        coder_model_gemini: str = "gemini-3-flash"
-        reviewer_model_gemini: str = "gemini-3-flash"
-        reflector_model_gemini: str = "gemini-3-flash"
+        gemini_model_name: str = "gemini-2.5-flash"
+        architect_model_gemini: str = "gemini-2.5-flash"
+        coder_model_gemini: str = "gemini-2.5-flash"
+        reviewer_model_gemini: str = "gemini-2.5-flash"
+        reflector_model_gemini: str = "gemini-2.5-flash"
 
         def __post_init__(self) -> None:
             self.workspace_path = Path(self.workspace_path).resolve()

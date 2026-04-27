@@ -21,7 +21,7 @@ ClineやCursorといった既存のツールが「高性能な磁針や櫂（ツ
 * **The Sanctuary (堅牢な船体):** すべての思考とコードがローカルで完結する、安全で独立した開発拠点。
 * **SYLPH (風の精霊たち):** 方舟を動かす不可視のエージェント群。
     * **Main Mast:** Gemini 2.5 Flash 等を主軸とした爆速の推論能力。
-    * **Local Sails:** プライバシーを完全に守るローカルLLM群（Gemma 3, Qwen 2.5 Coder, Llama 3.2 等）によるオフライン航海。
+    * **Local Sails:** プライバシーを完全に守るローカルLLM群（Gemma 4, Qwen 2.5 Coder, Llama 3.2 等）によるオフライン航海。
 
 ---
 
