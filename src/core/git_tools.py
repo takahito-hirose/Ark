@@ -40,6 +40,23 @@ class GitTool:
         if not (target_cwd / ".git").exists() and "init" not in args:
             log.info("🐣 Git repository missing. Initializing now...")
             subprocess.run(["git", "init", "-b", "main"], cwd=target_cwd, capture_output=True)
+            
+            # 🌟 NEW: Git初期化と同時に、最強の .gitignore を自動配備する！
+            gitignore_path = target_cwd / ".gitignore"
+            if not gitignore_path.exists():
+                log.info("🛡️ [GitTool] Deploying standard .gitignore...")
+                ignore_content = (
+                    "# Environments\n"
+                    ".venv/\n"
+                    "venv/\n"
+                    "env/\n\n"
+                    "# Python\n"
+                    "__pycache__/\n"
+                    "*.pyc\n\n"
+                    "# Secrets\n"
+                    ".env\n"
+                )
+                gitignore_path.write_text(ignore_content, encoding="utf-8")
 
         try:
             result = subprocess.run(
