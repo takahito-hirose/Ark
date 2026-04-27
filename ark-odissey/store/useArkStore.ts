@@ -97,10 +97,10 @@ export const useArkStore = create<ArkState>((set) => ({
   targetDir: '',
 
   modelOverrides: {
-    architect: 'gemini-3.0-flash',
-    coder: 'gemini-3.0-flash',
-    reviewer: 'gemini-3.0-flash',
-    reflector: 'gemini-3.0-flash'
+    architect: 'gemini-3-flash',
+    coder: 'gemini-3-flash',
+    reviewer: 'gemini-3-flash',
+    reflector: 'gemini-3-flash'
   },
 
   isAwaitingSearchApproval: false,
@@ -114,8 +114,8 @@ export const useArkStore = create<ArkState>((set) => ({
 
   // 🌟 NEW: 初期値としてクラウドモデルを入れておく
   availableModels: [
-    { id: 'gemini-3.0-flash', name: 'Gemini 3.0 Flash', isLocal: false },
-    { id: 'gemini-3.0-pro', name: 'Gemini 3.0 Pro', isLocal: false },
+    { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', isLocal: false },
+    { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', isLocal: false },
     { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', isLocal: false },
     { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isLocal: false },
   ],

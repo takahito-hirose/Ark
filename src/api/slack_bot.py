@@ -40,8 +40,8 @@ _pending_missions = {}
 def get_dynamic_models():
     """OllamaのAPIを叩いて動的にモデルリストを生成する"""
     options = [
-        {"text": {"type": "plain_text", "text": "Gemini 3.0 Flash"}, "value": "gemini-3.0-flash"},
-        {"text": {"type": "plain_text", "text": "Gemini 3.0 Pro"}, "value": "gemini-3.0-pro"},
+        {"text": {"type": "plain_text", "text": "Gemini 3.0 Flash"}, "value": "gemini-3-flash"},
+        {"text": {"type": "plain_text", "text": "Gemini 3.0 Pro"}, "value": "gemini-3-pro"},
         {"text": {"type": "plain_text", "text": "GPT-4o (OpenAI)"}, "value": "gpt-4o"},
         {"text": {"type": "plain_text", "text": "Claude 3.5 Sonnet"}, "value": "claude-3.5-sonnet"}
     ]
