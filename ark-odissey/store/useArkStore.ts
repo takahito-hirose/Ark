@@ -97,10 +97,10 @@ export const useArkStore = create<ArkState>((set) => ({
   targetDir: '',
 
   modelOverrides: {
-    architect: 'gemini-2.5-flash',
-    coder: 'gemini-2.5-flash',
-    reviewer: 'gemini-2.5-flash',
-    reflector: 'gemini-2.5-flash'
+    architect: 'gemini-3.0-flash',
+    coder: 'gemini-3.0-flash',
+    reviewer: 'gemini-3.0-flash',
+    reflector: 'gemini-3.0-flash'
   },
 
   isAwaitingSearchApproval: false,
@@ -114,8 +114,8 @@ export const useArkStore = create<ArkState>((set) => ({
 
   // 🌟 NEW: 初期値としてクラウドモデルを入れておく
   availableModels: [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isLocal: false },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', isLocal: false },
+    { id: 'gemini-3.0-flash', name: 'Gemini 3.0 Flash', isLocal: false },
+    { id: 'gemini-3.0-pro', name: 'Gemini 3.0 Pro', isLocal: false },
     { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', isLocal: false },
     { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isLocal: false },
   ],
@@ -126,7 +126,7 @@ export const useArkStore = create<ArkState>((set) => ({
       // Reactアプリ（ブラウザ）から直接OllamaのAPIを叩く
       const res = await fetch('http://localhost:11434/api/tags');
       if (!res.ok) throw new Error('Ollama API response was not ok');
-      
+
       const data = await res.json();
       const localModels: ArkModel[] = data.models.map((m: any) => ({
         id: `ollama|${m.name}`,       // 例: ollama|qwen2.5-coder:7b
@@ -144,11 +144,11 @@ export const useArkStore = create<ArkState>((set) => ({
       // 取得失敗時は、フォールバック用のデフォルトOllamaを1つだけ追加する
       set((state) => {
         const cloudModels = state.availableModels.filter(m => !m.isLocal);
-        return { 
+        return {
           availableModels: [
-            { id: 'ollama', name: 'Ollama (Local Default)', isLocal: true }, 
+            { id: 'ollama', name: 'Ollama (Local Default)', isLocal: true },
             ...cloudModels
-          ] 
+          ]
         };
       });
     }
