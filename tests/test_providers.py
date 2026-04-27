@@ -146,8 +146,8 @@ class TestGetProvider(unittest.TestCase):
         self.cfg.reviewer_provider = "mock"
         # 新しく追加したモデル設定も一応 mock ではデフォルトのままにするか、明示的に設定
         self.cfg.architect_model = "gemini-3.1-pro"
-        self.cfg.coder_model = "gemini-3-flash"
-        self.cfg.reviewer_model = "gemini-3-flash"
+        self.cfg.coder_model = "gemini-2.5-flash"
+        self.cfg.reviewer_model = "gemini-2.5-flash"
 
     def test_get_provider_architect_returns_mock(self) -> None:
         """get_provider('architect') が MockProvider を返すこと。"""
