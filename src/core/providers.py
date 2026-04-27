@@ -15,8 +15,14 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict, Any
 
 try:
+    import litellm
     from litellm import completion, completion_cost
     LITELLM_AVAILABLE = True
+
+    # 🌟 ARKのレジリエンス（回復力）を極大化する最強設定
+    litellm.num_retries = 3          # 503エラーが出ても3回まで自動で粘る！
+    litellm.backoff_factor = 1.5     # リトライ間隔を徐々に伸ばしてサーバーを気遣うよ！
+    litellm.api_version = "v1beta"   # 404エラーを回避して最新モデル（Gemini 3）を掴む！
 except ImportError:
     LITELLM_AVAILABLE = False
 
@@ -88,10 +94,16 @@ class UniversalProvider(BaseProvider):
 
         messages = [{"role": "user", "content": prompt}]
         
+        # 🌟 モデルに合わせて Temperature を賢く切り替えるよ！
+        # Gemini 3系は1.0未満だと無限ループの危険があるから1.0に固定！
+        temp = 1.0 if "gemini-3" in self._model_name.lower() else 0.2
+        if "gemini-3" in self._model_name.lower():
+            log.debug(f"Gemini 3 detected. Adjusting temperature to {temp} to prevent degraded reasoning.")
+
         kwargs = {
             "model": self._model_name,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": temp,
             "max_tokens": 8192,
         }
 
