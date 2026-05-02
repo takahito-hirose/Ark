@@ -1,3 +1,4 @@
+// ark-odissey/store/useArkStore.ts
 import { create } from 'zustand';
 
 export interface LogEntry {
@@ -28,15 +29,30 @@ export interface PlanData {
   test_code: string;
 }
 
-// 🌟 NEW: モデルの型定義
+// モデルの型定義
 export interface ArkModel {
   id: string;
   name: string;
   isLocal: boolean;
 }
 
+// 🌟 NEW: エージェントの思考データの型定義
+export interface AgentThought {
+  agent: string;
+  task: string;
+  thought_process: string;
+  current_tool?: string | null;
+  timestamp: number;
+}
+
 interface ArkState {
   logs: LogEntry[];
+  
+  // 🌟 NEW: 思考ログのステートとアクション
+  thoughts: AgentThought[];
+  addThought: (thought: AgentThought) => void;
+  clearThoughts: () => void;
+
   phase: 'IDLE' | 'PLANNING' | 'CODING' | 'REVIEWING' | 'COMMITTING' | 'PROPOSING' | 'DONE' | 'BLOCKED';
   isThinking: boolean;
   hasError: boolean;
@@ -63,7 +79,6 @@ interface ArkState {
 
   proposal: ProposalData | null;
 
-  // 🌟 NEW: 動的モデルリストとフェッチ関数
   availableModels: ArkModel[];
   fetchModels: () => Promise<void>;
 
@@ -88,6 +103,15 @@ interface ArkState {
 
 export const useArkStore = create<ArkState>((set) => ({
   logs: [],
+  
+  // 🌟 NEW: 初期値とアクションの実装
+  thoughts: [],
+  addThought: (thought) => set((state) => {
+    const newThoughts = [...state.thoughts, thought];
+    return { thoughts: newThoughts.length > 50 ? newThoughts.slice(newThoughts.length - 50) : newThoughts };
+  }),
+  clearThoughts: () => set({ thoughts: [] }),
+
   phase: 'IDLE',
   isThinking: false,
   hasError: false,
@@ -112,7 +136,6 @@ export const useArkStore = create<ArkState>((set) => ({
 
   proposal: null,
 
-  // 🌟 NEW: 初期値としてクラウドモデルを入れておく
   availableModels: [
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isLocal: false },
     { id: 'gemini-2.5-Pro', name: 'Gemini 2.5 Pro', isLocal: false },
@@ -120,28 +143,24 @@ export const useArkStore = create<ArkState>((set) => ({
     { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isLocal: false },
   ],
 
-  // 🌟 NEW: Ollamaからモデル一覧を取得してストアに追加するアクション
   fetchModels: async () => {
     try {
-      // Reactアプリ（ブラウザ）から直接OllamaのAPIを叩く
       const res = await fetch('http://localhost:11434/api/tags');
       if (!res.ok) throw new Error('Ollama API response was not ok');
 
       const data = await res.json();
       const localModels: ArkModel[] = data.models.map((m: any) => ({
-        id: `ollama|${m.name}`,       // 例: ollama|qwen2.5-coder:7b
-        name: `🦙 Ollama (${m.name})`, // UI表示用
+        id: `ollama|${m.name}`,
+        name: `🦙 Ollama (${m.name})`,
         isLocal: true
       }));
 
       set((state) => {
-        // 既存のクラウドモデルと、新しく取得したローカルモデルを合体！
         const cloudModels = state.availableModels.filter(m => !m.isLocal);
         return { availableModels: [...localModels, ...cloudModels] };
       });
     } catch (error) {
       console.warn('Ollamaのモデル取得に失敗しました。CORSエラーかOllamaが停止しています。', error);
-      // 取得失敗時は、フォールバック用のデフォルトOllamaを1つだけ追加する
       set((state) => {
         const cloudModels = state.availableModels.filter(m => !m.isLocal);
         return {

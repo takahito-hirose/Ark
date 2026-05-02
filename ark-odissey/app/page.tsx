@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { motion, AnimatePresence } from 'framer-motion';
 import Viewport3D from '@/components/Viewport3D';
+import ThoughtStream from '@/components/ThoughtStream'; // 🌟 NEW: 思考ストリームをインポート
 import { useArkStore } from '../store/useArkStore';
 
 export default function App() {
@@ -21,13 +22,13 @@ export default function App() {
     proposal,
     isAwaitingPlanApproval,
     pendingPlanData,
-    // 🌟 NEW: 動的モデルのリストと取得関数をストアから呼び出す
     availableModels,
     fetchModels,
     setPhase,
     setThinking,
     setHasError,
     addLog,
+    addThought, // 🌟 NEW: 思考ログ追加関数
     spendCoins,
     updateTreasury,
     setModelOverride,
@@ -46,7 +47,6 @@ export default function App() {
 
   const [editedProposalGoal, setEditedProposalGoal] = useState('');
 
-  // 🌟 NEW: 画面ロード時に一回だけOllamaからモデル一覧を取得する
   useEffect(() => {
     fetchModels();
   }, [fetchModels]);
@@ -102,7 +102,16 @@ export default function App() {
             if (currentCost !== undefined && currentTokens !== undefined) updateTreasury(currentCost, currentTokens);
           }
 
-          if (data.type === 'SEARCH_REQUEST') {
+          // 🌟 NEW: 思考ストリームの受信処理
+          if (data.type === 'AGENT_THOUGHT') {
+            addThought({
+              agent: data.agent,
+              task: data.task,
+              thought_process: data.thought_process,
+              current_tool: data.current_tool,
+              timestamp: Date.now()
+            });
+          } else if (data.type === 'SEARCH_REQUEST') {
             setSearchApprovalRequest(data.query);
             addLog({ timestamp: new Date().toLocaleTimeString('ja-JP', { hour12: false }), agent: 'ARCHITECT', message: `🔭 リサーチ要求: "${data.query}"`, level: 'warning' });
 
@@ -132,7 +141,7 @@ export default function App() {
     };
     connectWebSocket();
     return () => ws?.close();
-  }, [addLog, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest, setProposal, setPlanApprovalRequest]);
+  }, [addLog, addThought, setPhase, setThinking, setHasError, spendCoins, updateTreasury, setSearchApprovalRequest, setProposal, setPlanApprovalRequest]);
 
   const handleSearchApproval = (approved: boolean) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -243,6 +252,9 @@ export default function App() {
           <Viewport3D />
         </Canvas>
       </div>
+
+      {/* 🌟 NEW: 画面中央に思考ストリームを配置！ */}
+      <ThoughtStream />
 
       <AnimatePresence>
         {isAwaitingSearchApproval && (
@@ -454,7 +466,6 @@ export default function App() {
                 <span className="text-[8px] text-purple-600 font-normal">SOTA ENGINE SELECTOR</span>
               </div>
               <div className="space-y-2">
-                {/* 🌟 NEW: 動的モデルのリストを展開してセレクトボックスに表示 */}
                 {(['architect', 'coder', 'reviewer', 'reflector'] as const).map(role => (
                   <div key={role} className="flex justify-between items-center text-[10px]">
                     <span className="uppercase text-gray-500 font-bold w-20">{role}</span>

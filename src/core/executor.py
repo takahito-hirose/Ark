@@ -159,7 +159,10 @@ class ParallelTaskExecutor:
                         content = target_file.read_text(encoding="utf-8")
                         current_source += f"### File: {target}\n```python\n{content}\n```\n\n"
 
+            # 🌟 NEW: 読み取ったTarget Filesのコードをプロンプトに合体させる！
             prompt_aug = accumulated_context
+            if current_source:
+                prompt_aug += f"\n\n【📝 Target Files Content】\n{current_source}"
             
             # Coderへ指示（エラー修正モード or 新規実装モード）
             if execution_feedback:
