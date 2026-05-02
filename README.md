@@ -30,6 +30,7 @@ ClineやCursorといった既存のツールが「高性能な磁針や櫂（ツ
 ### 1. 【操舵室】マルチモデル・ナビゲーション (Bridge)
 海域（タスク）に応じて、ローカルモデルと最新SOTAモデルを動的に切り替え。
 * **Context Radar:** `read_file` ツールにより、プロジェクト全体の文脈を読み取る「視覚と海図」を獲得。
+* **Dynamic Skills Loader:** 選択されたLLMプロバイダー（SOTA or Local）を自律検知し、エリート（SOTA）向けには高度な推論を求めるプロンプト、職人（Local）向けには厳格で簡潔なプロンプト（`Skills_local.md`）を動的に切り替えてロードする「知能最適化機構」を搭載。
 
 ### 2. 【機関室】不滅の自律制御ループ (Engine Room)
 * **Auto-Bailing (自動修復):** 実行エラー（浸水）を解析し、原因を特定してコードを自動修正。どんな嵐でも方舟は沈みません。
@@ -55,6 +56,8 @@ ClineやCursorといった既存のツールが「高性能な磁針や櫂（ツ
 ### 7. 【ニューロ・リンク】APIサーバー ＆ リアルタイム通信 (Neuro-Link) 🔌
 * **FastAPI Core:** 外部システムやUIからの命令をREST API経由で受け付ける「感覚神経」を実装。
 * **WebSocket Streaming:** ARKの思考プロセス（脳波）をリアルタイムに配信。ブラウザ上のダッシュボードへ直接思考ログを流し込みます。
+* **Neuro-Link Stream:** 各エージェント（SYLPH）の深層思考（`<thought>` タグ内の推論プロセス）を正規表現でキャッチし、WebSocket経由でリアルタイムにHUDへストリーミング。AIの「脳内」を完全に可視化します。
+
 
 ### 8. 【金庫】トークン・エコノミー (The Treasury) 🪙
 ARKが消費したLLMの推論コスト（トークン数）をリアルタイムに計算し、操舵室（UI）の金貨メーターに反映するシステムです。
@@ -147,6 +150,11 @@ ARKが消費したLLMの推論コスト（トークン数）をリアルタイ�
     - [x] **Step 2: Static Analysis Engine (基礎体力測定):** Pharos内に `flake8` 等を組み込み、構文エラーや規約違反を高速検知する第一防衛ラインの構築。
     - [x] **Step 3: AI Scoring Engine (多角的な品質採点):** 特化型AIが「セキュリティ」「パフォーマンス」「保守性」「回復力」「テスト容易性」の5軸でコードを100点満点でスコア化し、Reviewerの判定基準とする機能。
     - [x] **Step 4: Infectious QA (The Pharos 自動配備プロトコル):** ARKが触れる全リポジトリに対し、GitHub ActionsとしてのPharos（YAML設定）と必要なSecrets（APIキー）を自律的に配備し、クラウド上でも品質を担保する最終防衛網の確立。
+- [x] **Phase 16.5 (Neuro-Link UI Evolution - 思考ログと動的知能最適化):** 🚀 **COMPLETED**
+    - [x] **Neuro-Link Stream:** LLMの深層推論（`<thought>`タグ）を抽出し、HUD上にリアルタイムストリーミングする機能。AIの脳内分析を可能に。
+    - [x] **Dynamic Skills Loader:** プロバイダー（SOTA or Local）を自律検知し、エージェントのIQを最大限に引き出す専用プロンプト（`Skills.md` / `Skills_local.md`）を動的に切り替える機構の実装。
+    - [x] **Thought Debugger UI:** HUD上の思考ログに対して、個別コピーおよび「COPY ALL」一括コピー機能を実装し、バグ調査の生産性を劇的に向上。
+    - [x] **I/O Pipeline Hardening:** Coderが既存ファイルを編集する際、`current_source` の渡し忘れによるハルシネーション（幻覚コード生成）を防止するロジックの堅牢化。
 - [ ] **Phase 17 (Overdrive Protocol - 完全自律・夜間航行):** 🌟 **PLANNED**
     - **Overdrive Command:** 人間の承認プロセスを完全にスキップし、Phase 15で得た「記憶」とPhase 16の「Pharos品質監査」を頼りに、朝まで自律的にタスクを連続消化する限界突破モード。
     - **Circuit Breaker:** APIコスト上限やエラーループ回数を検知し、予算超過や暴走を未然に防ぐ安全装置。
