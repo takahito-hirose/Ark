@@ -32,10 +32,16 @@ class CoderAgent(BaseAgent):
         self, 
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
-        on_token_usage: Optional[Callable[[int], None]] = None
+        on_token_usage: Optional[Callable[[int], None]] = None,
+        on_thought: Optional[Callable[[str, str, str, str], None]] = None  # 🌟 NEW: 思考キャッチ用
     ) -> None:
-        # BaseAgentがここで src/agents/coder/Skills.md をロードするよ！
-        super().__init__(provider, role="coder", workspace_path=workspace_path, on_token_usage=on_token_usage)
+        super().__init__(
+            provider, 
+            role="coder", 
+            workspace_path=workspace_path, 
+            on_token_usage=on_token_usage,
+            on_thought=on_thought  # 🌟 BaseAgentにパススルー！
+        )
 
     def code(self, plan: PlanPayload, retry: int, reviewer_feedback: str = "") -> CodePayload:
         """プランに基づきコードを生成する。"""

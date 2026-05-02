@@ -40,16 +40,17 @@ class ArchitectAgent(BaseAgent):
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
         on_token_usage: Optional[Callable[[int], None]] = None,
+        on_thought: Optional[Callable[[str, str, str, str], None]] = None, # 🌟 NEW: 思考キャッチ用の受け皿！
         use_mock_telescope: bool = False
     ) -> None:
         super().__init__(
             provider, 
             role="architect", 
             workspace_path=workspace_path,
-            on_token_usage=on_token_usage
+            on_token_usage=on_token_usage,
+            on_thought=on_thought # 🌟 BaseAgentにそのままパス！
         )
         self.telescope = WebTelescope(mock_mode=use_mock_telescope)
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

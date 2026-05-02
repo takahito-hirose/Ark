@@ -47,13 +47,15 @@ class ReviewerAgent(BaseAgent):
         self, 
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
-        on_token_usage: Optional[Callable[[int], None]] = None
+        on_token_usage: Optional[Callable[[int], None]] = None,
+        on_thought: Optional[Callable[[str, str, str, str], None]] = None  # 🌟 NEW: 思考キャッチ用の受け皿！
     ) -> None:
         super().__init__(
             provider, 
             role="reviewer", 
             workspace_path=workspace_path,
-            on_token_usage=on_token_usage
+            on_token_usage=on_token_usage,
+            on_thought=on_thought  # 🌟 BaseAgentにそのままパス！
         )
 
     def review(self, code: CodePayload, retry: int, plan: PlanPayload | None = None, run_result: RunResult | None = None) -> ReviewPayload:

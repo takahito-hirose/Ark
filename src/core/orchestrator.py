@@ -70,6 +70,7 @@ class Orchestrator:
         on_cost_update: Callable[[dict], None] | None = None,
         on_proposal: Callable[[dict], None] | None = None,
         on_plan_ready: Callable[[dict], bool] | None = None,
+        on_agent_thought: Callable[[str, str, str, str], None] | None = None, # 🌟 NEW: 引数に思考キャッチ用の回線を追加！
         auto_approve_search: bool = False,
         config_overrides: dict[str, str] | None = None
     ) -> None:
@@ -97,6 +98,7 @@ class Orchestrator:
         self.on_cost_update = on_cost_update
         self.on_proposal = on_proposal
         self.on_plan_ready = on_plan_ready
+        self.on_agent_thought = on_agent_thought # 🌟 NEW: 受け取った回線をクラス変数に保存！
         
         self._state = ARKState(self._base_workspace)
         if self.on_status_change:
@@ -108,10 +110,11 @@ class Orchestrator:
         self.auto_approve_search = auto_approve_search
         log.info(f"⚙️ System Initialized / Auto Approve Search: {'ON' if self.auto_approve_search else 'OFF'}")
 
-        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage)
-        self._reflector = ReflectorAgent(get_provider("reflector", self._cfg), workspace_path=self._base_workspace, tools=[memory_tools.save_core_rule, memory_tools.archive_experience], on_token_usage=self.on_token_usage)
+        # 🌟 NEW: 各エージェントに on_thought の回線を繋ぐよ！
+        self._architect = ArchitectAgent(get_provider("architect", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage, on_thought=self.on_agent_thought)
+        self._coder = CoderAgent(get_provider("coder", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage, on_thought=self.on_agent_thought)
+        self._reviewer = ReviewerAgent(get_provider("reviewer", self._cfg), workspace_path=self._base_workspace, on_token_usage=self.on_token_usage, on_thought=self.on_agent_thought)
+        self._reflector = ReflectorAgent(get_provider("reflector", self._cfg), workspace_path=self._base_workspace, tools=[memory_tools.save_core_rule, memory_tools.archive_experience], on_token_usage=self.on_token_usage, on_thought=self.on_agent_thought)
         
         self._agents = [self._architect, self._coder, self._reviewer, self._reflector]
         self._agent_names = ["Architect", "Coder", "Reviewer", "Reflector"]
@@ -120,7 +123,7 @@ class Orchestrator:
         for agent in self._agents:
             agent._memory = self._memory
 
-        # 🌟 ここで The Pharos の門番を配備！
+        # ここで The Pharos の門番を配備！
         self._gatekeeper = PharosGatekeeper(max_retries=MAX_RETRIES)
 
     def _broadcast_cost(self) -> None:

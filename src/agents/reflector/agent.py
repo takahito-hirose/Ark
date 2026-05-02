@@ -37,13 +37,15 @@ class ReflectorAgent(BaseAgent):
         provider: "BaseProvider", 
         workspace_path: Path | None = None,
         tools: list[Any] | None = None,
-        on_token_usage: Optional[Callable[[int], None]] = None
+        on_token_usage: Optional[Callable[[int], None]] = None,
+        on_thought: Optional[Callable[[str, str, str, str], None]] = None  # 🌟 NEW: 思考キャッチ用
     ) -> None:
         super().__init__(
             provider, 
             role="reflector", 
             workspace_path=workspace_path,
-            on_token_usage=on_token_usage
+            on_token_usage=on_token_usage,
+            on_thought=on_thought  # 🌟 BaseAgentにそのままパス！
         )
         self.workspace_path = workspace_path
         self.tools = tools or []
